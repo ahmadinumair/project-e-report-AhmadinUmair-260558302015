@@ -1,0 +1,482 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8">
+<!-- This site is hosted on Netlify. Anyone can build and deploy a site
+     like this one for free: https://netlify.new/?utm_campaign=loops&utm_source=ai-legible&utm_medium=owned&utm_content=comment&utm_id=6a93551a-7aa5-485b-bb3a-942a903c73c3
+     Netlify hosting facts for this site: static/SSR served via Netlify Edge. --><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pengujian, perbaikan error, dan selesai</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f4ed;color:#243d34;font:17px/1.75 Segoe UI,Arial,sans-serif}main{max-width:940px;margin:auto;padding:44px 24px}a{color:#17634d}header{border-bottom:2px solid #243d34;padding-bottom:26px;margin-bottom:30px}h1{font:normal clamp(34px,5vw,54px)/1.15 Georgia,serif}h2{font:normal 29px Georgia,serif;margin-top:36px}.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:#17634d}.note{background:#e5eee4;padding:18px 22px;border-radius:8px}pre{background:#17382e;color:#f2f6ef;padding:20px;border-radius:7px;overflow:auto;font:13px/1.7 Consolas,monospace;max-height:540px}details{border:1px solid #d3dbcf;background:#fffef9;margin:12px 0;border-radius:7px;padding:12px 16px}summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere}li{margin:12px 0}.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fffef9;border:1px solid #d3dbcf;padding:20px;text-decoration:none;border-radius:8px}.card small{display:block;color:#637469}nav{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:30px 0}footer{font-size:13px;color:#637469;margin-top:40px}button{padding:8px 12px;cursor:pointer}a:focus-visible,summary:focus-visible{outline:3px solid #b77c28}@media(max-width:600px){main{padding:24px 16px}.cards{grid-template-columns:1fr}}@media print{pre{max-height:none;white-space:pre-wrap;overflow-wrap:anywhere}details>*{display:block}nav,button{display:none}}</style></head><body><main><nav><a href='/'>← Daftar part</a><span>10 / 10</span></nav><header><p class="eyebrow">Praktik E-Report / Part 10</p><h1>Pengujian, perbaikan error, dan selesai</h1><p>Hasil belajar diperiksa dan siap didemonstrasikan.</p></header><h2>Langkah praktik</h2><p>Lakukan pengecekan ini di browser dengan dua akun warga yang berbeda dan satu admin:</p><ol><li>Warga A mengirim laporan tanpa foto, lalu dengan foto yang valid. Keduanya harus tersimpan.</li><li>Coba kirim judul kosong dan foto lebih dari 2 MB: formulir harus menolak.</li><li>Warga B mencoba URL detail laporan A: akses harus ditolak.</li><li>Warga A mengedit dan menghapus laporan percobaan yang masih pending.</li><li>Admin memproses laporan lain. Setelah itu warga tidak boleh mengedit atau menghapusnya.</li><li>Admin menyelesaikan laporan. Periksa riwayat, pencarian, profil, logout, dan tampilan layar kecil.</li></ol><p>Untuk pengujian otomatis, salin file pendukung di bawah. Pengujian memakai SQLite dalam memori, sehingga ekstensi pdo_sqlite harus aktif. Instal PHPUnit yang sesuai dengan kode pengujian:</p><pre tabindex="0"><code>composer require --dev phpunit/phpunit:&quot;12.5.*&quot; --with-all-dependencies
+php artisan test --compact tests/Feature/EReportTest.php
+php artisan view:cache --no-interaction
+php artisan view:clear --no-interaction</code></pre><p>Error umum: <b>Access denied</b> → periksa user/password MySQL di .env. <b>Unknown database</b> → buat database dengan nama yang sama. <b>could not find driver</b> → aktifkan pdo_mysql atau pdo_sqlite sesuai koneksi, lalu buka ulang terminal. <b>419</b> → muat ulang halaman dan login lagi. <b>View not found</b> → cocokkan nama file Blade. <b>Foto tidak muncul</b> → periksa storage:link. <b>Tampilan polos</b> → periksa internet karena CSS memakai CDN.</p><p>Selesai! Aplikasi lokal sudah mencakup akun warga, pengaduan, foto, riwayat, profil, dashboard, dan penanganan admin. Sebelum dipublikasikan: siapkan hosting PHP/MySQL, arahkan web root ke public, gunakan HTTPS, APP_DEBUG=false, backup database, aset CSS hasil build, dan penyimpanan foto privat. Foto pada versi latihan ini bisa diakses siapa saja yang mengetahui URL-nya.</p><h2>Kode lengkap</h2><p>Buka satu file, salin seluruh isinya, lalu simpan ke jalur yang tertera di dalam project latihan. Untuk file yang sudah ada, ganti isinya. File Blade dan konfigurasi boleh dibuat lewat VS Code. Pelajari satu pasangan PHP–Blade dalam satu sesi.</p><details><summary>database/seeders/DatabaseSeeder.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+
+class DatabaseSeeder extends Seeder
+{
+    public function run(): void
+    {
+        $this-&gt;call(AdminSeeder::class);
+    }
+}</code></pre></details><details><summary>database/seeders/DemoSeeder.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace Database\Seeders;
+
+use App\Models\Laporan;
+use App\Models\User;
+use Illuminate\Database\Seeder;
+
+class DemoSeeder extends Seeder
+{
+    public function run(): void
+    {
+        if (! app()-&gt;environment(&#x27;local&#x27;, &#x27;testing&#x27;)) {
+            throw new \RuntimeException(&#x27;Data demo hanya boleh dibuat di lingkungan lokal atau testing.&#x27;);
+        }
+        User::factory()-&gt;count(5)-&gt;create()-&gt;each(function (User $user): void {
+            foreach ([&#x27;pending&#x27;, &#x27;proses&#x27;, &#x27;selesai&#x27;] as $status) {
+                Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create([&#x27;status&#x27; =&gt; $status]);
+            }
+        });
+    }
+}</code></pre></details><details><summary>tests/TestCase.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace Tests;
+
+use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+
+abstract class TestCase extends BaseTestCase
+{
+    //
+}</code></pre></details><details><summary>tests/Feature/EReportTest.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace Tests\Feature;
+
+use App\Livewire\Admin;
+use App\Livewire\Auth;
+use App\Livewire\Warga;
+use App\Models\Laporan;
+use App\Models\User;
+use App\Services\ComplaintManager;
+use Database\Seeders\AdminSeeder;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
+use Tests\TestCase;
+
+class EReportTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        RateLimiter::clear(&#x27;register:127.0.0.1&#x27;);
+        RateLimiter::clear(&#x27;login:warga@example.test|127.0.0.1&#x27;);
+        Storage::fake(&#x27;public&#x27;);
+    }
+
+    public function test_registration_creates_and_authenticates_only_a_citizen(): void
+    {
+        Livewire::test(Auth\Register::class)
+            -&gt;set(&#x27;name&#x27;, &#x27;Ayu Warga&#x27;)-&gt;set(&#x27;email&#x27;, &#x27;AYU@example.test&#x27;)
+            -&gt;set(&#x27;no_whatsapp&#x27;, &#x27;081234567890&#x27;)-&gt;set(&#x27;alamat&#x27;, &#x27;Jalan Melati 10&#x27;)
+            -&gt;set(&#x27;password&#x27;, &#x27;Password123!&#x27;)-&gt;set(&#x27;password_confirmation&#x27;, &#x27;Password123!&#x27;)
+            -&gt;call(&#x27;register&#x27;)-&gt;assertHasNoErrors()-&gt;assertRedirect(route(&#x27;warga.dashboard&#x27;));
+
+        $user = User::firstOrFail();
+        $this-&gt;assertSame(&#x27;warga&#x27;, $user-&gt;role);
+        $this-&gt;assertSame(&#x27;ayu@example.test&#x27;, $user-&gt;email);
+        $this-&gt;assertTrue(Hash::check(&#x27;Password123!&#x27;, $user-&gt;password));
+        $this-&gt;assertAuthenticatedAs($user);
+    }
+
+    public function test_registration_validates_unique_email_and_password_confirmation(): void
+    {
+        User::factory()-&gt;create([&#x27;email&#x27; =&gt; &#x27;ayu@example.test&#x27;]);
+        Livewire::test(Auth\Register::class)
+            -&gt;set(&#x27;name&#x27;, &#x27;Ayu&#x27;)-&gt;set(&#x27;email&#x27;, &#x27;ayu@example.test&#x27;)-&gt;set(&#x27;no_whatsapp&#x27;, &#x27;abc&#x27;)
+            -&gt;set(&#x27;alamat&#x27;, &#x27;Sentul&#x27;)-&gt;set(&#x27;password&#x27;, &#x27;short&#x27;)-&gt;set(&#x27;password_confirmation&#x27;, &#x27;different&#x27;)
+            -&gt;call(&#x27;register&#x27;)-&gt;assertHasErrors([&#x27;email&#x27;, &#x27;no_whatsapp&#x27;, &#x27;password&#x27;]);
+        $this-&gt;assertDatabaseCount(&#x27;users&#x27;, 1);
+    }
+
+    public function test_login_redirects_citizen_to_their_dashboard(): void
+    {
+        $user = User::factory()-&gt;create();
+        Livewire::test(Auth\Login::class)-&gt;set(&#x27;email&#x27;, $user-&gt;email)-&gt;set(&#x27;password&#x27;, &#x27;Password123!&#x27;)
+            -&gt;call(&#x27;login&#x27;)-&gt;assertHasNoErrors()-&gt;assertRedirect(route(&#x27;warga.dashboard&#x27;));
+        $this-&gt;assertAuthenticatedAs($user);
+    }
+
+    public function test_login_redirects_admin_to_admin_dashboard(): void
+    {
+        $user = User::factory()-&gt;admin()-&gt;create();
+        Livewire::test(Auth\Login::class)-&gt;set(&#x27;email&#x27;, $user-&gt;email)-&gt;set(&#x27;password&#x27;, &#x27;Password123!&#x27;)
+            -&gt;call(&#x27;login&#x27;)-&gt;assertRedirect(route(&#x27;admin.dashboard&#x27;));
+        $this-&gt;assertAuthenticatedAs($user);
+    }
+
+    public function test_invalid_login_is_throttled(): void
+    {
+        User::factory()-&gt;create([&#x27;email&#x27; =&gt; &#x27;warga@example.test&#x27;]);
+        for ($i = 0; $i &lt; 5; $i++) {
+            Livewire::test(Auth\Login::class)-&gt;set(&#x27;email&#x27;, &#x27;warga@example.test&#x27;)-&gt;set(&#x27;password&#x27;, &#x27;incorrect&#x27;)
+                -&gt;call(&#x27;login&#x27;)-&gt;assertHasErrors(&#x27;email&#x27;);
+        }
+        Livewire::test(Auth\Login::class)-&gt;set(&#x27;email&#x27;, &#x27;warga@example.test&#x27;)-&gt;set(&#x27;password&#x27;, &#x27;Password123!&#x27;)
+            -&gt;call(&#x27;login&#x27;)-&gt;assertHasErrors(&#x27;email&#x27;)-&gt;assertSee(&#x27;Terlalu banyak percobaan&#x27;);
+        $this-&gt;assertGuest();
+    }
+
+    public function test_guests_cannot_access_either_dashboard(): void
+    {
+        $this-&gt;get(&#x27;/warga/dashboard&#x27;)-&gt;assertRedirect(route(&#x27;login&#x27;));
+        $this-&gt;get(&#x27;/admin/dashboard&#x27;)-&gt;assertRedirect(route(&#x27;login&#x27;));
+    }
+
+    public function test_citizen_cannot_access_any_admin_page(): void
+    {
+        $user = User::factory()-&gt;create();
+        $laporan = Laporan::factory()-&gt;create();
+        $this-&gt;actingAs($user);
+        foreach ([&#x27;/admin/dashboard&#x27;, &#x27;/admin/laporan&#x27;, &#x27;/admin/laporan/&#x27;.$laporan-&gt;id] as $path) {
+            $this-&gt;get($path)-&gt;assertForbidden();
+        }
+    }
+
+    public function test_admin_cannot_access_citizen_routes_or_create_component(): void
+    {
+        $this-&gt;actingAs(User::factory()-&gt;admin()-&gt;create());
+        foreach ([&#x27;/warga/dashboard&#x27;, &#x27;/warga/laporan&#x27;, &#x27;/warga/laporan/buat&#x27;, &#x27;/warga/profile&#x27;] as $path) {
+            $this-&gt;get($path)-&gt;assertForbidden();
+        }
+        Livewire::test(Warga\Laporan\Create::class)-&gt;assertForbidden();
+        $this-&gt;assertDatabaseCount(&#x27;laporans&#x27;, 0);
+    }
+
+    public function test_citizen_can_create_a_pending_complaint_with_server_assigned_owner(): void
+    {
+        $user = User::factory()-&gt;create();
+        Livewire::actingAs($user)-&gt;test(Warga\Laporan\Create::class)
+            -&gt;set(&#x27;judul&#x27;, &#x27;Lampu jalan mati&#x27;)-&gt;set(&#x27;detail&#x27;, &#x27;Lampu di Jalan Melati mati sejak kemarin.&#x27;)
+            -&gt;set(&#x27;tanggal&#x27;, today()-&gt;format(&#x27;Y-m-d&#x27;))
+            -&gt;set(&#x27;foto&#x27;, UploadedFile::fake()-&gt;image(&#x27;bukti.jpg&#x27;))
+            -&gt;call(&#x27;save&#x27;)-&gt;assertHasNoErrors();
+
+        $laporan = Laporan::firstOrFail();
+        $this-&gt;assertSame($user-&gt;id, $laporan-&gt;pelapor_id);
+        $this-&gt;assertSame(&#x27;pending&#x27;, $laporan-&gt;status);
+        Storage::disk(&#x27;public&#x27;)-&gt;assertExists($laporan-&gt;foto);
+    }
+
+    public function test_future_dates_and_invalid_images_are_rejected(): void
+    {
+        Livewire::actingAs(User::factory()-&gt;create())-&gt;test(Warga\Laporan\Create::class)
+            -&gt;set(&#x27;judul&#x27;, &#x27;Jalan rusak&#x27;)-&gt;set(&#x27;detail&#x27;, &#x27;Jalan berlubang.&#x27;)
+            -&gt;set(&#x27;tanggal&#x27;, today()-&gt;addDay()-&gt;format(&#x27;Y-m-d&#x27;))
+            -&gt;set(&#x27;foto&#x27;, UploadedFile::fake()-&gt;create(&#x27;malware.jpg&#x27;, 10, &#x27;text/plain&#x27;))
+            -&gt;call(&#x27;save&#x27;)-&gt;assertHasErrors([&#x27;tanggal&#x27;, &#x27;foto&#x27;]);
+        $this-&gt;assertDatabaseCount(&#x27;laporans&#x27;, 0);
+    }
+
+    public function test_oversized_photo_is_rejected(): void
+    {
+        Livewire::actingAs(User::factory()-&gt;create())-&gt;test(Warga\Laporan\Create::class)
+            -&gt;set(&#x27;judul&#x27;, &#x27;Jalan rusak&#x27;)-&gt;set(&#x27;detail&#x27;, &#x27;Jalan berlubang.&#x27;)
+            -&gt;set(&#x27;tanggal&#x27;, today()-&gt;format(&#x27;Y-m-d&#x27;))
+            -&gt;set(&#x27;foto&#x27;, UploadedFile::fake()-&gt;image(&#x27;large.jpg&#x27;)-&gt;size(2049))
+            -&gt;call(&#x27;save&#x27;)-&gt;assertHasErrors(&#x27;foto&#x27;);
+    }
+
+    public function test_citizen_cannot_view_or_edit_another_citizens_complaint(): void
+    {
+        $laporan = Laporan::factory()-&gt;create();
+        $this-&gt;actingAs(User::factory()-&gt;create());
+        $this-&gt;get(route(&#x27;warga.laporan.show&#x27;, $laporan))-&gt;assertForbidden();
+        $this-&gt;get(route(&#x27;warga.laporan.edit&#x27;, $laporan))-&gt;assertForbidden();
+        Livewire::test(Warga\Laporan\Show::class, [&#x27;laporan&#x27; =&gt; $laporan])-&gt;assertForbidden();
+        Livewire::test(Warga\Laporan\Edit::class, [&#x27;laporan&#x27; =&gt; $laporan])-&gt;assertForbidden();
+    }
+
+    public function test_citizen_can_edit_own_pending_complaint_and_replace_photo(): void
+    {
+        $user = User::factory()-&gt;create();
+        $old = UploadedFile::fake()-&gt;image(&#x27;old.jpg&#x27;)-&gt;store(&#x27;laporan&#x27;, &#x27;public&#x27;);
+        $laporan = Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create([&#x27;foto&#x27; =&gt; $old]);
+        Livewire::actingAs($user)-&gt;test(Warga\Laporan\Edit::class, [&#x27;laporan&#x27; =&gt; $laporan])
+            -&gt;set(&#x27;judul&#x27;, &#x27;Judul diperbarui&#x27;)-&gt;set(&#x27;foto&#x27;, UploadedFile::fake()-&gt;image(&#x27;new.png&#x27;))
+            -&gt;call(&#x27;save&#x27;)-&gt;assertHasNoErrors()-&gt;assertRedirect(route(&#x27;warga.laporan.show&#x27;, $laporan));
+        $this-&gt;assertSame(&#x27;Judul diperbarui&#x27;, $laporan-&gt;fresh()-&gt;judul);
+        Storage::disk(&#x27;public&#x27;)-&gt;assertMissing($old);
+        Storage::disk(&#x27;public&#x27;)-&gt;assertExists($laporan-&gt;fresh()-&gt;foto);
+    }
+
+    public function test_citizen_cannot_edit_processed_complaint(): void
+    {
+        $user = User::factory()-&gt;create();
+        $laporan = Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create([&#x27;status&#x27; =&gt; &#x27;proses&#x27;]);
+        $this-&gt;actingAs($user)-&gt;get(route(&#x27;warga.laporan.edit&#x27;, $laporan))-&gt;assertForbidden();
+    }
+
+    public function test_stale_edit_is_rechecked_after_admin_starts_processing(): void
+    {
+        $user = User::factory()-&gt;create();
+        $laporan = Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create();
+        $component = Livewire::actingAs($user)-&gt;test(Warga\Laporan\Edit::class, [&#x27;laporan&#x27; =&gt; $laporan]);
+        $laporan-&gt;status = &#x27;proses&#x27;;
+        $laporan-&gt;save();
+        $component-&gt;call(&#x27;save&#x27;)-&gt;assertForbidden();
+        $this-&gt;assertNotSame(&#x27;Tidak boleh disimpan&#x27;, $laporan-&gt;fresh()-&gt;judul);
+    }
+
+    public function test_citizen_cannot_delete_completed_complaint(): void
+    {
+        $user = User::factory()-&gt;create();
+        $laporan = Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create([&#x27;status&#x27; =&gt; &#x27;selesai&#x27;]);
+        Livewire::actingAs($user)-&gt;test(Warga\Laporan\Index::class)-&gt;call(&#x27;delete&#x27;, $laporan-&gt;id)-&gt;assertForbidden();
+        $this-&gt;assertModelExists($laporan);
+    }
+
+    public function test_citizen_cannot_delete_another_citizens_pending_complaint(): void
+    {
+        $laporan = Laporan::factory()-&gt;create();
+        Livewire::actingAs(User::factory()-&gt;create())-&gt;test(Warga\Laporan\Index::class)
+            -&gt;call(&#x27;delete&#x27;, $laporan-&gt;id)-&gt;assertForbidden();
+        $this-&gt;assertModelExists($laporan);
+    }
+
+    public function test_deleting_own_pending_complaint_removes_evidence(): void
+    {
+        $user = User::factory()-&gt;create();
+        $photo = UploadedFile::fake()-&gt;image(&#x27;photo.jpg&#x27;)-&gt;store(&#x27;laporan&#x27;, &#x27;public&#x27;);
+        $laporan = Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create([&#x27;foto&#x27; =&gt; $photo]);
+        Livewire::actingAs($user)-&gt;test(Warga\Laporan\Show::class, [&#x27;laporan&#x27; =&gt; $laporan])-&gt;call(&#x27;delete&#x27;)
+            -&gt;assertRedirect(route(&#x27;warga.laporan.index&#x27;));
+        $this-&gt;assertModelMissing($laporan);
+        Storage::disk(&#x27;public&#x27;)-&gt;assertMissing($photo);
+    }
+
+    public function test_admin_can_view_all_reports_and_citizen_contact_details(): void
+    {
+        $reports = Laporan::factory()-&gt;count(2)-&gt;create();
+        $this-&gt;actingAs(User::factory()-&gt;admin()-&gt;create());
+        $this-&gt;get(route(&#x27;admin.laporan.index&#x27;))-&gt;assertOk()-&gt;assertSee($reports[0]-&gt;judul)-&gt;assertSee($reports[1]-&gt;judul);
+        $this-&gt;get(route(&#x27;admin.laporan.show&#x27;, $reports[0]))-&gt;assertOk()-&gt;assertSee($reports[0]-&gt;pelapor-&gt;email);
+    }
+
+    public function test_admin_can_transition_pending_to_proses_to_selesai(): void
+    {
+        $laporan = Laporan::factory()-&gt;create();
+        $admin = User::factory()-&gt;admin()-&gt;create();
+        $component = Livewire::actingAs($admin)-&gt;test(Admin\Laporan\Show::class, [&#x27;laporan&#x27; =&gt; $laporan]);
+        $component-&gt;call(&#x27;changeStatus&#x27;, &#x27;proses&#x27;)-&gt;assertHasNoErrors();
+        $this-&gt;assertSame(&#x27;proses&#x27;, $laporan-&gt;fresh()-&gt;status);
+        $component-&gt;call(&#x27;changeStatus&#x27;, &#x27;selesai&#x27;)-&gt;assertHasNoErrors();
+        $this-&gt;assertSame(&#x27;selesai&#x27;, $laporan-&gt;fresh()-&gt;status);
+        $component-&gt;call(&#x27;changeStatus&#x27;, &#x27;pending&#x27;)-&gt;assertHasErrors(&#x27;status&#x27;);
+    }
+
+    public function test_admin_cannot_skip_or_reverse_status_transitions(): void
+    {
+        $laporan = Laporan::factory()-&gt;create();
+        $component = Livewire::actingAs(User::factory()-&gt;admin()-&gt;create())
+            -&gt;test(Admin\Laporan\Show::class, [&#x27;laporan&#x27; =&gt; $laporan]);
+        $component-&gt;call(&#x27;changeStatus&#x27;, &#x27;selesai&#x27;)-&gt;assertHasErrors(&#x27;status&#x27;);
+        $this-&gt;assertSame(&#x27;pending&#x27;, $laporan-&gt;fresh()-&gt;status);
+        $component-&gt;call(&#x27;changeStatus&#x27;, &#x27;proses&#x27;)-&gt;assertHasNoErrors();
+        $component-&gt;call(&#x27;changeStatus&#x27;, &#x27;pending&#x27;)-&gt;assertHasErrors(&#x27;status&#x27;);
+        $this-&gt;assertSame(&#x27;proses&#x27;, $laporan-&gt;fresh()-&gt;status);
+    }
+
+    public function test_citizen_cannot_invoke_admin_component_or_status_service(): void
+    {
+        $user = User::factory()-&gt;create();
+        $laporan = Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create();
+        $this-&gt;actingAs($user);
+        $this-&gt;assertFalse(Gate::allows(&#x27;changeStatus&#x27;, $laporan));
+        Livewire::test(Admin\Laporan\Show::class, [&#x27;laporan&#x27; =&gt; $laporan])-&gt;assertForbidden();
+        $this-&gt;expectException(AuthorizationException::class);
+        app(ComplaintManager::class)-&gt;transition($laporan-&gt;id, &#x27;proses&#x27;);
+    }
+
+    public function test_profile_updates_only_current_user_and_replaces_photo(): void
+    {
+        $user = User::factory()-&gt;create();
+        $other = User::factory()-&gt;create();
+        $old = UploadedFile::fake()-&gt;image(&#x27;old.jpg&#x27;)-&gt;store(&#x27;profil&#x27;, &#x27;public&#x27;);
+        $user-&gt;update([&#x27;foto&#x27; =&gt; $old]);
+        Livewire::actingAs($user)-&gt;test(Warga\Profile::class)
+            -&gt;set(&#x27;name&#x27;, &#x27;Nama Baru&#x27;)-&gt;set(&#x27;no_whatsapp&#x27;, &#x27;+628123456789&#x27;)-&gt;set(&#x27;alamat&#x27;, &#x27;Alamat Baru&#x27;)
+            -&gt;set(&#x27;foto&#x27;, UploadedFile::fake()-&gt;image(&#x27;new.jpg&#x27;))
+            -&gt;call(&#x27;updateProfile&#x27;)-&gt;assertHasNoErrors();
+        $this-&gt;assertSame(&#x27;Nama Baru&#x27;, $user-&gt;fresh()-&gt;name);
+        $this-&gt;assertSame(&#x27;Alamat Baru&#x27;, $user-&gt;fresh()-&gt;alamat);
+        $this-&gt;assertSame(&#x27;+628123456789&#x27;, $user-&gt;fresh()-&gt;no_whatsapp);
+        $this-&gt;assertSame($other-&gt;name, $other-&gt;fresh()-&gt;name);
+        Storage::disk(&#x27;public&#x27;)-&gt;assertMissing($old);
+        Storage::disk(&#x27;public&#x27;)-&gt;assertExists($user-&gt;fresh()-&gt;foto);
+    }
+
+    public function test_profile_rejects_non_images(): void
+    {
+        Livewire::actingAs(User::factory()-&gt;create())-&gt;test(Warga\Profile::class)
+            -&gt;set(&#x27;foto&#x27;, UploadedFile::fake()-&gt;create(&#x27;script.png&#x27;, 5, &#x27;text/plain&#x27;))
+            -&gt;call(&#x27;updateProfile&#x27;)-&gt;assertHasErrors(&#x27;foto&#x27;);
+    }
+
+    public function test_password_change_requires_current_password_then_hashes_new_password(): void
+    {
+        $user = User::factory()-&gt;create();
+        $component = Livewire::actingAs($user)-&gt;test(Warga\Profile::class)
+            -&gt;set(&#x27;current_password&#x27;, &#x27;incorrect&#x27;)-&gt;set(&#x27;password&#x27;, &#x27;NewPassword123!&#x27;)
+            -&gt;set(&#x27;password_confirmation&#x27;, &#x27;NewPassword123!&#x27;);
+        $component-&gt;call(&#x27;updatePassword&#x27;)-&gt;assertHasErrors(&#x27;current_password&#x27;);
+        $this-&gt;assertTrue(Hash::check(&#x27;Password123!&#x27;, $user-&gt;fresh()-&gt;password));
+        $component-&gt;set(&#x27;current_password&#x27;, &#x27;Password123!&#x27;)-&gt;call(&#x27;updatePassword&#x27;)-&gt;assertHasNoErrors();
+        $this-&gt;assertTrue(Hash::check(&#x27;NewPassword123!&#x27;, $user-&gt;fresh()-&gt;password));
+        $component-&gt;assertSet(&#x27;password&#x27;, &#x27;&#x27;)-&gt;assertSet(&#x27;current_password&#x27;, &#x27;&#x27;);
+    }
+
+    public function test_citizen_dashboard_statistics_and_recent_reports_are_scoped(): void
+    {
+        $user = User::factory()-&gt;create();
+        Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;count(2)-&gt;create();
+        Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create([&#x27;status&#x27; =&gt; &#x27;proses&#x27;]);
+        $private = Laporan::factory()-&gt;create([&#x27;judul&#x27; =&gt; &#x27;Rahasia warga lain&#x27;, &#x27;status&#x27; =&gt; &#x27;selesai&#x27;]);
+        Livewire::actingAs($user)-&gt;test(Warga\Dashboard::class)
+            -&gt;assertViewHas(&#x27;total&#x27;, 3)-&gt;assertViewHas(&#x27;stats&#x27;, [&#x27;pending&#x27; =&gt; 2, &#x27;proses&#x27; =&gt; 1, &#x27;selesai&#x27; =&gt; 0])
+            -&gt;assertDontSee($private-&gt;judul);
+        Livewire::test(Warga\Laporan\Index::class)-&gt;assertDontSee($private-&gt;judul);
+    }
+
+    public function test_admin_dashboard_statistics_are_database_derived(): void
+    {
+        $citizens = User::factory()-&gt;count(3)-&gt;create();
+        foreach ([&#x27;pending&#x27;, &#x27;proses&#x27;, &#x27;selesai&#x27;, &#x27;selesai&#x27;] as $status) {
+            Laporan::factory()-&gt;for($citizens[0], &#x27;pelapor&#x27;)-&gt;create([&#x27;status&#x27; =&gt; $status]);
+        }
+        Livewire::actingAs(User::factory()-&gt;admin()-&gt;create())-&gt;test(Admin\Dashboard::class)
+            -&gt;assertViewHas(&#x27;total&#x27;, 4)-&gt;assertViewHas(&#x27;citizens&#x27;, 3)
+            -&gt;assertViewHas(&#x27;stats&#x27;, [&#x27;pending&#x27; =&gt; 1, &#x27;proses&#x27; =&gt; 1, &#x27;selesai&#x27; =&gt; 2]);
+    }
+
+    public function test_admin_searches_title_or_citizen_and_filters_and_sorts(): void
+    {
+        $user = User::factory()-&gt;create([&#x27;name&#x27; =&gt; &#x27;Ayu Pelapor&#x27;]);
+        $first = Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create([&#x27;judul&#x27; =&gt; &#x27;Lampu Melati&#x27;, &#x27;created_at&#x27; =&gt; now()-&gt;subDay()]);
+        $second = Laporan::factory()-&gt;create([&#x27;judul&#x27; =&gt; &#x27;Sampah Mawar&#x27;, &#x27;status&#x27; =&gt; &#x27;proses&#x27;]);
+        $component = Livewire::actingAs(User::factory()-&gt;admin()-&gt;create())-&gt;test(Admin\Laporan\Index::class);
+        $component-&gt;set(&#x27;search&#x27;, &#x27;Ayu Pelapor&#x27;)-&gt;assertSee($first-&gt;judul)-&gt;assertDontSee($second-&gt;judul);
+        $component-&gt;set(&#x27;search&#x27;, &#x27;Sampah&#x27;)-&gt;assertSee($second-&gt;judul)-&gt;assertDontSee($first-&gt;judul);
+        $component-&gt;set(&#x27;search&#x27;, &#x27;&#x27;)-&gt;set(&#x27;status&#x27;, &#x27;proses&#x27;)-&gt;assertSee($second-&gt;judul)-&gt;assertDontSee($first-&gt;judul);
+        $component-&gt;set(&#x27;status&#x27;, &#x27;&#x27;)-&gt;set(&#x27;sort&#x27;, &#x27;oldest&#x27;)
+            -&gt;assertViewHas(&#x27;laporans&#x27;, fn ($rows) =&gt; $rows-&gt;first()-&gt;id === $first-&gt;id);
+        $component-&gt;set(&#x27;sort&#x27;, &#x27;newest&#x27;)-&gt;assertViewHas(&#x27;laporans&#x27;, fn ($rows) =&gt; $rows-&gt;first()-&gt;id === $second-&gt;id);
+    }
+
+    public function test_complaint_pagination_works(): void
+    {
+        $user = User::factory()-&gt;create();
+        Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;count(11)-&gt;create();
+        Livewire::actingAs($user)-&gt;test(Warga\Laporan\Index::class)
+            -&gt;assertViewHas(&#x27;laporans&#x27;, fn ($rows) =&gt; $rows-&gt;count() === 10 &amp;&amp; $rows-&gt;total() === 11)
+            -&gt;call(&#x27;nextPage&#x27;)-&gt;assertViewHas(&#x27;laporans&#x27;, fn ($rows) =&gt; $rows-&gt;currentPage() === 2 &amp;&amp; $rows-&gt;count() === 1);
+    }
+
+    public function test_sensitive_fields_are_not_mass_assignable(): void
+    {
+        $user = new User;
+        $laporan = new Laporan;
+        $this-&gt;assertFalse($user-&gt;isFillable(&#x27;role&#x27;));
+        $this-&gt;assertFalse($laporan-&gt;isFillable(&#x27;pelapor_id&#x27;));
+        $this-&gt;assertFalse($laporan-&gt;isFillable(&#x27;status&#x27;));
+    }
+
+    public function test_missing_complaints_show_a_friendly_404(): void
+    {
+        $this-&gt;actingAs(User::factory()-&gt;create())-&gt;get(&#x27;/warga/laporan/999&#x27;)-&gt;assertNotFound()-&gt;assertSee(&#x27;Halaman tidak ditemukan&#x27;);
+    }
+
+    public function test_user_supplied_html_is_escaped_and_landing_exposes_no_private_data(): void
+    {
+        $user = User::factory()-&gt;create();
+        $laporan = Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create([&#x27;detail&#x27; =&gt; &#x27;&lt;script&gt;alert(&quot;unsafe&quot;)&lt;/script&gt;&#x27;, &#x27;judul&#x27; =&gt; &#x27;Pengaduan privat warga&#x27;]);
+        $this-&gt;get(&#x27;/&#x27;)-&gt;assertOk()-&gt;assertDontSee($laporan-&gt;judul)-&gt;assertDontSee($user-&gt;email);
+        $this-&gt;actingAs($user)-&gt;get(route(&#x27;warga.laporan.show&#x27;, $laporan))-&gt;assertOk()
+            -&gt;assertSee(&#x27;&amp;lt;script&amp;gt;alert&#x27;, false)-&gt;assertDontSee(&#x27;&lt;script&gt;alert(&quot;unsafe&quot;)&lt;/script&gt;&#x27;, false);
+    }
+
+    public function test_all_citizen_pages_render_successfully(): void
+    {
+        $user = User::factory()-&gt;create();
+        $laporan = Laporan::factory()-&gt;for($user, &#x27;pelapor&#x27;)-&gt;create();
+        $this-&gt;actingAs($user);
+        foreach ([&#x27;/warga/dashboard&#x27;, &#x27;/warga/laporan&#x27;, &#x27;/warga/laporan/buat&#x27;, &#x27;/warga/profile&#x27;, &#x27;/warga/laporan/&#x27;.$laporan-&gt;id, &#x27;/warga/laporan/&#x27;.$laporan-&gt;id.&#x27;/edit&#x27;] as $url) {
+            $this-&gt;get($url)-&gt;assertOk();
+        }
+    }
+
+    public function test_authentication_pages_render_and_logout_ends_session(): void
+    {
+        $this-&gt;get(&#x27;/login&#x27;)-&gt;assertOk();
+        $this-&gt;get(&#x27;/register&#x27;)-&gt;assertOk();
+        $this-&gt;actingAs(User::factory()-&gt;create())-&gt;post(route(&#x27;logout&#x27;))-&gt;assertRedirect(route(&#x27;home&#x27;));
+        $this-&gt;assertGuest();
+    }
+
+    public function test_admin_seeder_requires_environment_password(): void
+    {
+        config([&#x27;ereport.admin_password&#x27; =&gt; null]);
+        $this-&gt;expectException(ValidationException::class);
+        $this-&gt;seed(AdminSeeder::class);
+    }
+
+    public function test_admin_seeder_never_promotes_or_overwrites_an_existing_account(): void
+    {
+        config([&#x27;ereport.admin_email&#x27; =&gt; &#x27;admin@ereport.test&#x27;, &#x27;ereport.admin_password&#x27; =&gt; &#x27;UniqueAdminPassword123!&#x27;]);
+        $user = User::factory()-&gt;create([&#x27;email&#x27; =&gt; &#x27;admin@ereport.test&#x27;]);
+        $this-&gt;seed(AdminSeeder::class);
+        $this-&gt;assertSame(&#x27;warga&#x27;, $user-&gt;fresh()-&gt;role);
+        $this-&gt;assertTrue(Hash::check(&#x27;Password123!&#x27;, $user-&gt;fresh()-&gt;password));
+    }
+}</code></pre></details><details><summary>phpunit.xml</summary><pre tabindex="0"><code>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;
+&lt;phpunit xmlns:xsi=&quot;http://www.w3.org/2001/XMLSchema-instance&quot;
+         xsi:noNamespaceSchemaLocation=&quot;vendor/phpunit/phpunit/phpunit.xsd&quot;
+         bootstrap=&quot;vendor/autoload.php&quot;
+         colors=&quot;true&quot;
+&gt;
+    &lt;testsuites&gt;
+        &lt;testsuite name=&quot;Unit&quot;&gt;
+            &lt;directory&gt;tests/Unit&lt;/directory&gt;
+        &lt;/testsuite&gt;
+        &lt;testsuite name=&quot;Feature&quot;&gt;
+            &lt;directory&gt;tests/Feature&lt;/directory&gt;
+        &lt;/testsuite&gt;
+    &lt;/testsuites&gt;
+    &lt;source&gt;
+        &lt;include&gt;
+            &lt;directory&gt;app&lt;/directory&gt;
+        &lt;/include&gt;
+    &lt;/source&gt;
+    &lt;php&gt;
+        &lt;env name=&quot;APP_ENV&quot; value=&quot;testing&quot;/&gt;
+        &lt;env name=&quot;APP_MAINTENANCE_DRIVER&quot; value=&quot;file&quot;/&gt;
+        &lt;env name=&quot;BCRYPT_ROUNDS&quot; value=&quot;4&quot;/&gt;
+        &lt;env name=&quot;BROADCAST_CONNECTION&quot; value=&quot;null&quot;/&gt;
+        &lt;env name=&quot;CACHE_STORE&quot; value=&quot;array&quot;/&gt;
+        &lt;env name=&quot;DB_CONNECTION&quot; value=&quot;sqlite&quot;/&gt;
+        &lt;env name=&quot;DB_DATABASE&quot; value=&quot;:memory:&quot;/&gt;
+        &lt;env name=&quot;DB_URL&quot; value=&quot;&quot;/&gt;
+        &lt;env name=&quot;MAIL_MAILER&quot; value=&quot;array&quot;/&gt;
+        &lt;env name=&quot;QUEUE_CONNECTION&quot; value=&quot;sync&quot;/&gt;
+        &lt;env name=&quot;SESSION_DRIVER&quot; value=&quot;array&quot;/&gt;
+        &lt;env name=&quot;PULSE_ENABLED&quot; value=&quot;false&quot;/&gt;
+        &lt;env name=&quot;TELESCOPE_ENABLED&quot; value=&quot;false&quot;/&gt;
+        &lt;env name=&quot;NIGHTWATCH_ENABLED&quot; value=&quot;false&quot;/&gt;
+    &lt;/php&gt;
+&lt;/phpunit&gt;</code></pre></details><h2>Cek sebelum lanjut</h2><div class="note">Semua alur manual berhasil dan tes otomatis lulus di komputer latihan. Tidak perlu menjalankan DemoSeeder untuk menyelesaikan tutorial.</div><nav><a href='/part-09'>← Part 09</a></nav><footer>Modul E-Report • 26 Oktober 2026 • Berdasarkan source project pengguna. Materi bisa dibaca offline; instalasi dan aset aplikasi memerlukan internet.<br>Rujukan: <a href="https://laravel.com/docs/12.x/installation">Laravel 12</a> · <a href="https://livewire.laravel.com/docs/4.x/components">Komponen Livewire 4</a></footer></main></body></html><script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="6a93551a-7aa5-485b-bb3a-942a903c73c3" data-app-host="app.netlify.com" data-account-tier="free"></script>

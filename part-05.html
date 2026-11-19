@@ -1,0 +1,326 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8">
+<!-- This site is hosted on Netlify. Anyone can build and deploy a site
+     like this one for free: https://netlify.new/?utm_campaign=loops&utm_source=ai-legible&utm_medium=owned&utm_content=comment&utm_id=6a93551a-7aa5-485b-bb3a-942a903c73c3
+     Netlify hosting facts for this site: static/SSR served via Netlify Edge. --><meta name="viewport" content="width=device-width,initial-scale=1"><title>Daftar, login, dan logout</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f4ed;color:#243d34;font:17px/1.75 Segoe UI,Arial,sans-serif}main{max-width:940px;margin:auto;padding:44px 24px}a{color:#17634d}header{border-bottom:2px solid #243d34;padding-bottom:26px;margin-bottom:30px}h1{font:normal clamp(34px,5vw,54px)/1.15 Georgia,serif}h2{font:normal 29px Georgia,serif;margin-top:36px}.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:#17634d}.note{background:#e5eee4;padding:18px 22px;border-radius:8px}pre{background:#17382e;color:#f2f6ef;padding:20px;border-radius:7px;overflow:auto;font:13px/1.7 Consolas,monospace;max-height:540px}details{border:1px solid #d3dbcf;background:#fffef9;margin:12px 0;border-radius:7px;padding:12px 16px}summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere}li{margin:12px 0}.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fffef9;border:1px solid #d3dbcf;padding:20px;text-decoration:none;border-radius:8px}.card small{display:block;color:#637469}nav{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:30px 0}footer{font-size:13px;color:#637469;margin-top:40px}button{padding:8px 12px;cursor:pointer}a:focus-visible,summary:focus-visible{outline:3px solid #b77c28}@media(max-width:600px){main{padding:24px 16px}.cards{grid-template-columns:1fr}}@media print{pre{max-height:none;white-space:pre-wrap;overflow-wrap:anywhere}details>*{display:block}nav,button{display:none}}</style></head><body><main><nav><a href='/'>← Daftar part</a><span>05 / 10</span></nav><header><p class="eyebrow">Praktik E-Report / Part 05</p><h1>Daftar, login, dan logout</h1><p>Pengunjung dapat membuat akun warga dan masuk.</p></header><h2>Langkah praktik</h2><pre tabindex="0"><code>php artisan make:livewire Auth/Register --class --no-interaction
+php artisan make:livewire Auth/Login --class --no-interaction
+php artisan make:controller LogoutController --no-interaction</code></pre><p>Setiap komponen punya dua file: PHP untuk proses dan Blade untuk tampilan. Ganti isi pasangan file di bawah. wire:model menghubungkan input ke variabel PHP; wire:submit memanggil method saat formulir dikirim.</p><p>register() memeriksa isian, menyimpan akun sebagai warga, lalu masuk otomatis. Password di-hash oleh model User. login() memeriksa kredensial. Logout mengakhiri sesi. Pengunjung tidak diberi pilihan mendaftar sebagai admin.</p><p>Validasi artinya memeriksa isian sebelum disimpan. Contohnya email wajib unik, nomor WhatsApp 9–15 digit, dan password warga minimal 8 karakter berisi huruf serta angka.</p><h2>Kode lengkap</h2><p>Buka satu file, salin seluruh isinya, lalu simpan ke jalur yang tertera di dalam project latihan. Untuk file yang sudah ada, ganti isinya. File Blade dan konfigurasi boleh dibuat lewat VS Code. Pelajari satu pasangan PHP–Blade dalam satu sesi.</p><details><summary>app/Livewire/Auth/Register.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Livewire\Auth;
+
+use App\Models\User;
+use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Layout;
+use Livewire\Component;
+
+#[Layout(&#x27;layouts.auth&#x27;)]
+class Register extends Component
+{
+    public string $name = &#x27;&#x27;;
+
+    public string $email = &#x27;&#x27;;
+
+    public string $no_whatsapp = &#x27;&#x27;;
+
+    public string $alamat = &#x27;&#x27;;
+
+    public string $password = &#x27;&#x27;;
+
+    public string $password_confirmation = &#x27;&#x27;;
+
+    public function register(): void
+    {
+        $key = &#x27;register:&#x27;.request()-&gt;ip();
+        if (RateLimiter::tooManyAttempts($key, 10)) {
+            throw ValidationException::withMessages([&#x27;email&#x27; =&gt; &#x27;Terlalu banyak pendaftaran. Silakan coba lagi nanti.&#x27;]);
+        }
+        $this-&gt;email = Str::lower(trim($this-&gt;email));
+        $data = $this-&gt;validate([
+            &#x27;name&#x27; =&gt; &#x27;required|string|max:100&#x27;,
+            &#x27;email&#x27; =&gt; &#x27;required|email|max:255|unique:users,email&#x27;,
+            &#x27;no_whatsapp&#x27; =&gt; [&#x27;required&#x27;, &#x27;regex:/^\+?[0-9]{9,15}$/&#x27;],
+            &#x27;alamat&#x27; =&gt; &#x27;required|string|max:2000&#x27;,
+            &#x27;password&#x27; =&gt; [&#x27;required&#x27;, &#x27;string&#x27;, &#x27;max:255&#x27;, &#x27;confirmed&#x27;, Password::min(8)-&gt;letters()-&gt;numbers()],
+        ]);
+        RateLimiter::hit($key, 3600);
+        $user = new User($data);
+        $user-&gt;role = &#x27;warga&#x27;;
+        $user-&gt;save();
+        Auth::login($user);
+        session()-&gt;regenerate();
+        $this-&gt;redirectRoute(&#x27;warga.dashboard&#x27;);
+    }
+
+    public function render(): View
+    {
+        return view(&#x27;livewire.auth.register&#x27;)-&gt;title(&#x27;Daftar Warga&#x27;);
+    }
+}</code></pre></details><details><summary>resources/views/livewire/auth/register.blade.php</summary><pre tabindex="0"><code>&lt;div&gt;
+    &lt;span class=&quot;text-xs font-bold tracking-widest text-blue-600&quot;&gt;MULAI PERUBAHAN DARI SINI&lt;/span&gt;
+    &lt;h1 class=&quot;mt-3 font-display text-3xl font-bold tracking-tight&quot;&gt;Buat akun warga&lt;/h1&gt;
+    &lt;p class=&quot;mt-3 text-sm text-slate-500&quot;&gt;Satu akun untuk menyampaikan dan memantau pengaduan.&lt;/p&gt;
+    &lt;form wire:submit=&quot;register&quot; class=&quot;mt-7 space-y-4&quot;&gt;
+        &lt;div&gt;
+            &lt;label for=&quot;name&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Nama lengkap&lt;/label&gt;
+            &lt;input
+                type=&quot;text&quot;
+                id=&quot;name&quot;
+                name=&quot;name&quot;
+                aria-describedby=&quot;name-error&quot;
+                @error(&#x27;name&#x27;)
+                aria-invalid=&quot;true&quot;
+                @enderror
+                wire:model=&quot;name&quot;
+                autocomplete=&quot;name&quot;
+                placeholder=&quot;Nama sesuai identitas&quot;
+                required
+                class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+            &gt;
+            @error(&#x27;name&#x27;)
+                &lt;p id=&quot;name-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+            @enderror
+        &lt;/div&gt;
+        &lt;div class=&quot;grid gap-4 sm:grid-cols-2&quot;&gt;
+            &lt;div&gt;
+                &lt;label for=&quot;email&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Email&lt;/label&gt;
+                &lt;input
+                    type=&quot;email&quot;
+                    id=&quot;email&quot;
+                    name=&quot;email&quot;
+                    aria-describedby=&quot;email-error&quot;
+                    @error(&#x27;email&#x27;)
+                    aria-invalid=&quot;true&quot;
+                    @enderror
+                    wire:model=&quot;email&quot;
+                    autocomplete=&quot;email&quot;
+                    placeholder=&quot;nama@email.com&quot;
+                    required
+                    class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+                &gt;
+                @error(&#x27;email&#x27;)
+                    &lt;p id=&quot;email-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                @enderror
+            &lt;/div&gt;
+            &lt;div&gt;
+                &lt;label for=&quot;no_whatsapp&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Nomor WhatsApp&lt;/label&gt;
+                &lt;input
+                    type=&quot;tel&quot;
+                    id=&quot;no_whatsapp&quot;
+                    name=&quot;no_whatsapp&quot;
+                    aria-describedby=&quot;no_whatsapp-error&quot;
+                    @error(&#x27;no_whatsapp&#x27;)
+                    aria-invalid=&quot;true&quot;
+                    @enderror
+                    wire:model=&quot;no_whatsapp&quot;
+                    autocomplete=&quot;tel&quot;
+                    placeholder=&quot;08xxxxxxxxxx&quot;
+                    required
+                    class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+                &gt;
+                @error(&#x27;no_whatsapp&#x27;)
+                    &lt;p id=&quot;no_whatsapp-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                @enderror
+            &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+            &lt;label for=&quot;alamat&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Alamat&lt;/label&gt;
+            &lt;textarea
+                id=&quot;alamat&quot;
+                name=&quot;alamat&quot;
+                aria-describedby=&quot;alamat-error&quot;
+                @error(&#x27;alamat&#x27;)
+                aria-invalid=&quot;true&quot;
+                @enderror
+                wire:model=&quot;alamat&quot;
+                autocomplete=&quot;street-address&quot;
+                placeholder=&quot;Jalan, RT/RW, kelurahan, kecamatan&quot;
+                rows=&quot;2&quot;
+                required
+                class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 min-h-32&quot;
+            &gt;&lt;/textarea&gt;
+            @error(&#x27;alamat&#x27;)
+                &lt;p id=&quot;alamat-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+            @enderror
+        &lt;/div&gt;
+        &lt;div&gt;
+            &lt;label for=&quot;password&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Password&lt;/label&gt;
+            &lt;input
+                type=&quot;password&quot;
+                id=&quot;password&quot;
+                name=&quot;password&quot;
+                aria-describedby=&quot;password-help password-error&quot;
+                @error(&#x27;password&#x27;)
+                aria-invalid=&quot;true&quot;
+                @enderror
+                wire:model=&quot;password&quot;
+                autocomplete=&quot;new-password&quot;
+                required
+                class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+            &gt;
+            &lt;p id=&quot;password-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;Minimal 8 karakter, mengandung huruf dan angka.&lt;/p&gt;
+            @error(&#x27;password&#x27;)
+                &lt;p id=&quot;password-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+            @enderror
+        &lt;/div&gt;
+        &lt;div&gt;
+            &lt;label for=&quot;password_confirmation&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Konfirmasi password&lt;/label&gt;
+            &lt;input
+                type=&quot;password&quot;
+                id=&quot;password_confirmation&quot;
+                name=&quot;password_confirmation&quot;
+                aria-describedby=&quot;password_confirmation-error&quot;
+                @error(&#x27;password_confirmation&#x27;)
+                aria-invalid=&quot;true&quot;
+                @enderror
+                wire:model=&quot;password_confirmation&quot;
+                autocomplete=&quot;new-password&quot;
+                required
+                class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+            &gt;
+            @error(&#x27;password_confirmation&#x27;)
+                &lt;p id=&quot;password_confirmation-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+            @enderror
+        &lt;/div&gt;
+        &lt;button
+            type=&quot;submit&quot;
+            wire:loading.attr=&quot;disabled&quot;
+            class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700 w-full&quot;
+        &gt;
+            &lt;span wire:loading.remove wire:target=&quot;register&quot;&gt;Daftar &amp; Mulai Melapor →&lt;/span&gt;
+            &lt;span wire:loading wire:target=&quot;register&quot;&gt;Membuat akun…&lt;/span&gt;
+        &lt;/button&gt;
+    &lt;/form&gt;
+    &lt;p class=&quot;mt-6 text-center text-sm text-slate-500&quot;&gt;
+        Sudah punya akun?
+        &lt;a href=&quot;{{ route(&#x27;login&#x27;) }}&quot; wire:navigate class=&quot;font-bold text-blue-600 hover:underline&quot;&gt;Masuk di sini&lt;/a&gt;
+    &lt;/p&gt;
+&lt;/div&gt;</code></pre></details><details><summary>app/Livewire/Auth/Login.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Livewire\Auth;
+
+use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Layout;
+use Livewire\Component;
+
+#[Layout(&#x27;layouts.auth&#x27;)]
+class Login extends Component
+{
+    public string $email = &#x27;&#x27;;
+
+    public string $password = &#x27;&#x27;;
+
+    public bool $remember = false;
+
+    public function login(): void
+    {
+        $this-&gt;validate([&#x27;email&#x27; =&gt; &#x27;required|email|max:255&#x27;, &#x27;password&#x27; =&gt; &#x27;required|string|max:255&#x27;]);
+        $key = &#x27;login:&#x27;.Str::transliterate(Str::lower($this-&gt;email)).&#x27;|&#x27;.request()-&gt;ip();
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            throw ValidationException::withMessages([&#x27;email&#x27; =&gt; &#x27;Terlalu banyak percobaan. Coba lagi dalam &#x27;.RateLimiter::availableIn($key).&#x27; detik.&#x27;]);
+        }
+        if (! Auth::attempt([&#x27;email&#x27; =&gt; Str::lower(trim($this-&gt;email)), &#x27;password&#x27; =&gt; $this-&gt;password], $this-&gt;remember)) {
+            RateLimiter::hit($key, 60);
+            $this-&gt;reset(&#x27;password&#x27;);
+            throw ValidationException::withMessages([&#x27;email&#x27; =&gt; &#x27;Email atau password tidak sesuai.&#x27;]);
+        }
+        RateLimiter::clear($key);
+        session()-&gt;regenerate();
+        $this-&gt;redirectRoute(auth()-&gt;user()-&gt;dashboardRoute());
+    }
+
+    public function render(): View
+    {
+        return view(&#x27;livewire.auth.login&#x27;)-&gt;title(&#x27;Masuk&#x27;);
+    }
+}</code></pre></details><details><summary>resources/views/livewire/auth/login.blade.php</summary><pre tabindex="0"><code>&lt;div&gt;
+    &lt;span class=&quot;text-xs font-bold tracking-widest text-blue-600&quot;&gt;SELAMAT DATANG KEMBALI&lt;/span&gt;
+    &lt;h1 class=&quot;mt-3 font-display text-3xl font-bold tracking-tight&quot;&gt;Masuk ke E-Report&lt;/h1&gt;
+    &lt;p class=&quot;mt-3 text-sm leading-relaxed text-slate-500&quot;&gt;Lanjutkan langkah kecil untuk perubahan besar.&lt;/p&gt;
+    &lt;form wire:submit=&quot;login&quot; class=&quot;mt-8 space-y-5&quot;&gt;
+        &lt;div&gt;
+            &lt;label for=&quot;email&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Email&lt;/label&gt;
+            &lt;input
+                type=&quot;email&quot;
+                id=&quot;email&quot;
+                name=&quot;email&quot;
+                aria-describedby=&quot;email-error&quot;
+                @error(&#x27;email&#x27;)
+                aria-invalid=&quot;true&quot;
+                @enderror
+                wire:model=&quot;email&quot;
+                placeholder=&quot;nama@email.com&quot;
+                autocomplete=&quot;email&quot;
+                required
+                class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+            &gt;
+            @error(&#x27;email&#x27;)
+                &lt;p id=&quot;email-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+            @enderror
+        &lt;/div&gt;
+        &lt;div&gt;
+            &lt;label for=&quot;password&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Password&lt;/label&gt;
+            &lt;input
+                type=&quot;password&quot;
+                id=&quot;password&quot;
+                name=&quot;password&quot;
+                aria-describedby=&quot;password-error&quot;
+                @error(&#x27;password&#x27;)
+                aria-invalid=&quot;true&quot;
+                @enderror
+                wire:model=&quot;password&quot;
+                placeholder=&quot;Masukkan password&quot;
+                autocomplete=&quot;current-password&quot;
+                required
+                class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+            &gt;
+            @error(&#x27;password&#x27;)
+                &lt;p id=&quot;password-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+            @enderror
+        &lt;/div&gt;
+        &lt;label class=&quot;flex items-center gap-2.5 text-sm text-slate-600&quot;&gt;
+            &lt;input type=&quot;checkbox&quot; wire:model=&quot;remember&quot; class=&quot;h-4 w-4 accent-blue-600&quot;&gt;
+            Ingat saya
+        &lt;/label&gt;
+        &lt;button
+            type=&quot;submit&quot;
+            wire:loading.attr=&quot;disabled&quot;
+            class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700 w-full&quot;
+        &gt;
+            &lt;span wire:loading.remove wire:target=&quot;login&quot;&gt;
+                Masuk ke Akun
+                &lt;span aria-hidden=&quot;true&quot;&gt;→&lt;/span&gt;
+            &lt;/span&gt;
+            &lt;span wire:loading wire:target=&quot;login&quot;&gt;Memeriksa akun…&lt;/span&gt;
+        &lt;/button&gt;
+    &lt;/form&gt;
+    &lt;p class=&quot;mt-7 text-center text-sm text-slate-500&quot;&gt;
+        Belum punya akun?
+        &lt;a href=&quot;{{ route(&#x27;register&#x27;) }}&quot; wire:navigate class=&quot;font-bold text-blue-600 hover:underline&quot;&gt;Daftar sekarang&lt;/a&gt;
+    &lt;/p&gt;
+&lt;/div&gt;</code></pre></details><details><summary>app/Http/Controllers/LogoutController.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+
+class LogoutController extends Controller
+{
+    public function __invoke(Request $request): RedirectResponse
+    {
+        Auth::logout();
+        $request-&gt;session()-&gt;invalidate();
+        $request-&gt;session()-&gt;regenerateToken();
+
+        return redirect()-&gt;route(&#x27;home&#x27;);
+    }
+}</code></pre></details><h2>Cek sebelum lanjut</h2><div class="note">Ada pasangan PHP dan Blade untuk Register serta Login. Uji browser dilakukan pada part 9 setelah dashboard tersedia.</div><nav><a href='/part-04'>← Part 04</a><a href='/part-06'>Part 06 →</a></nav><footer>Modul E-Report • 26 Oktober 2026 • Berdasarkan source project pengguna. Materi bisa dibaca offline; instalasi dan aset aplikasi memerlukan internet.<br>Rujukan: <a href="https://laravel.com/docs/12.x/installation">Laravel 12</a> · <a href="https://livewire.laravel.com/docs/4.x/components">Komponen Livewire 4</a></footer></main></body></html><script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="6a93551a-7aa5-485b-bb3a-942a903c73c3" data-app-host="app.netlify.com" data-account-tier="free"></script>

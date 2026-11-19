@@ -1,0 +1,207 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8">
+<!-- This site is hosted on Netlify. Anyone can build and deploy a site
+     like this one for free: https://netlify.new/?utm_campaign=loops&utm_source=ai-legible&utm_medium=owned&utm_content=comment&utm_id=6a93551a-7aa5-485b-bb3a-942a903c73c3
+     Netlify hosting facts for this site: static/SSR served via Netlify Edge. --><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tabel, model, dan relasi</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f4ed;color:#243d34;font:17px/1.75 Segoe UI,Arial,sans-serif}main{max-width:940px;margin:auto;padding:44px 24px}a{color:#17634d}header{border-bottom:2px solid #243d34;padding-bottom:26px;margin-bottom:30px}h1{font:normal clamp(34px,5vw,54px)/1.15 Georgia,serif}h2{font:normal 29px Georgia,serif;margin-top:36px}.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:#17634d}.note{background:#e5eee4;padding:18px 22px;border-radius:8px}pre{background:#17382e;color:#f2f6ef;padding:20px;border-radius:7px;overflow:auto;font:13px/1.7 Consolas,monospace;max-height:540px}details{border:1px solid #d3dbcf;background:#fffef9;margin:12px 0;border-radius:7px;padding:12px 16px}summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere}li{margin:12px 0}.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fffef9;border:1px solid #d3dbcf;padding:20px;text-decoration:none;border-radius:8px}.card small{display:block;color:#637469}nav{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:30px 0}footer{font-size:13px;color:#637469;margin-top:40px}button{padding:8px 12px;cursor:pointer}a:focus-visible,summary:focus-visible{outline:3px solid #b77c28}@media(max-width:600px){main{padding:24px 16px}.cards{grid-template-columns:1fr}}@media print{pre{max-height:none;white-space:pre-wrap;overflow-wrap:anywhere}details>*{display:block}nav,button{display:none}}</style></head><body><main><nav><a href='/'>← Daftar part</a><span>03 / 10</span></nav><header><p class="eyebrow">Praktik E-Report / Part 03</p><h1>Tabel, model, dan relasi</h1><p>Akun dan laporan punya tempat penyimpanan.</p></header><h2>Langkah praktik</h2><p>Migration membuat struktur tabel. Model membantu membaca dan menyimpan isinya. Satu User memiliki banyak Laporan; pelapor_id menyambungkan laporan ke akun.</p><pre tabindex="0"><code>php artisan make:model Laporan --migration --factory --no-interaction</code></pre><p>Buka kode lengkap di bawah satu per satu. Ganti isi file sesuai judulnya. Khusus migration laporan, gunakan file hasil generator yang berakhiran create_laporans_table.php; angka tanggal tidak perlu sama. Jangan membuat dua migration laporan. Migration users sudah ada: edit file tersebut, tetap pertahankan tabel sessions dan password_reset_tokens.</p><p>Kolom judul menyimpan ringkasan, detail menyimpan cerita, tanggal menyimpan tanggal kejadian, foto menyimpan lokasi berkas. Status awal adalah pending. fillable membatasi data yang boleh diisi bersama-sama; role, status, dan pelapor_id ditentukan oleh aplikasi.</p><p>Versi ini memakai restrictOnDelete: akun yang masih punya laporan tidak bisa dihapus langsung. Ini berbeda dari cascade pada contoh awal agar laporan tidak ikut hilang.</p><pre tabindex="0"><code>php artisan migrate --no-interaction
+php artisan migrate:status --no-interaction</code></pre><h2>Kode lengkap</h2><p>Buka satu file, salin seluruh isinya, lalu simpan ke jalur yang tertera di dalam project latihan. Untuk file yang sudah ada, ganti isinya. File Blade dan konfigurasi boleh dibuat lewat VS Code. Pelajari satu pasangan PHP–Blade dalam satu sesi.</p><details><summary>database/migrations/0001_01_01_000000_create_users_table.php</summary><pre tabindex="0"><code>&lt;?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create(&#x27;users&#x27;, function (Blueprint $table) {
+            $table-&gt;id();
+            $table-&gt;string(&#x27;name&#x27;);
+            $table-&gt;string(&#x27;email&#x27;)-&gt;unique();
+            $table-&gt;timestamp(&#x27;email_verified_at&#x27;)-&gt;nullable();
+            $table-&gt;string(&#x27;password&#x27;);
+            $table-&gt;string(&#x27;no_whatsapp&#x27;)-&gt;default(&#x27;&#x27;);
+            $table-&gt;text(&#x27;alamat&#x27;);
+            $table-&gt;string(&#x27;foto&#x27;)-&gt;nullable();
+            $table-&gt;enum(&#x27;role&#x27;, [&#x27;warga&#x27;, &#x27;admin&#x27;])-&gt;default(&#x27;warga&#x27;)-&gt;index();
+            $table-&gt;rememberToken();
+            $table-&gt;timestamps();
+        });
+
+        Schema::create(&#x27;password_reset_tokens&#x27;, function (Blueprint $table) {
+            $table-&gt;string(&#x27;email&#x27;)-&gt;primary();
+            $table-&gt;string(&#x27;token&#x27;);
+            $table-&gt;timestamp(&#x27;created_at&#x27;)-&gt;nullable();
+        });
+
+        Schema::create(&#x27;sessions&#x27;, function (Blueprint $table) {
+            $table-&gt;string(&#x27;id&#x27;)-&gt;primary();
+            $table-&gt;foreignId(&#x27;user_id&#x27;)-&gt;nullable()-&gt;index();
+            $table-&gt;string(&#x27;ip_address&#x27;, 45)-&gt;nullable();
+            $table-&gt;text(&#x27;user_agent&#x27;)-&gt;nullable();
+            $table-&gt;longText(&#x27;payload&#x27;);
+            $table-&gt;integer(&#x27;last_activity&#x27;)-&gt;index();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists(&#x27;users&#x27;);
+        Schema::dropIfExists(&#x27;password_reset_tokens&#x27;);
+        Schema::dropIfExists(&#x27;sessions&#x27;);
+    }
+};</code></pre></details><details><summary>database/migrations/2026_10_26_120002_create_laporans_table.php</summary><pre tabindex="0"><code>&lt;?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create(&#x27;laporans&#x27;, function (Blueprint $table) {
+            $table-&gt;id();
+            $table-&gt;foreignId(&#x27;pelapor_id&#x27;)-&gt;constrained(&#x27;users&#x27;)-&gt;restrictOnDelete();
+            $table-&gt;string(&#x27;judul&#x27;);
+            $table-&gt;text(&#x27;detail&#x27;);
+            $table-&gt;date(&#x27;tanggal&#x27;);
+            $table-&gt;string(&#x27;foto&#x27;)-&gt;nullable();
+            $table-&gt;enum(&#x27;status&#x27;, [&#x27;pending&#x27;, &#x27;proses&#x27;, &#x27;selesai&#x27;])-&gt;default(&#x27;pending&#x27;)-&gt;index();
+            $table-&gt;timestamps();
+            $table-&gt;index([&#x27;pelapor_id&#x27;, &#x27;created_at&#x27;]);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists(&#x27;laporans&#x27;);
+    }
+};</code></pre></details><details><summary>app/Models/User.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+
+class User extends Authenticatable
+{
+    use HasFactory, Notifiable;
+
+    protected $fillable = [&#x27;name&#x27;, &#x27;email&#x27;, &#x27;password&#x27;, &#x27;no_whatsapp&#x27;, &#x27;alamat&#x27;, &#x27;foto&#x27;];
+
+    protected $hidden = [&#x27;password&#x27;, &#x27;remember_token&#x27;];
+
+    protected $attributes = [&#x27;role&#x27; =&gt; &#x27;warga&#x27;];
+
+    protected function casts(): array
+    {
+        return [&#x27;email_verified_at&#x27; =&gt; &#x27;datetime&#x27;, &#x27;password&#x27; =&gt; &#x27;hashed&#x27;];
+    }
+
+    public function laporans(): HasMany
+    {
+        return $this-&gt;hasMany(Laporan::class, &#x27;pelapor_id&#x27;);
+    }
+
+    public function dashboardRoute(): string
+    {
+        return $this-&gt;role === &#x27;admin&#x27; ? &#x27;admin.dashboard&#x27; : &#x27;warga.dashboard&#x27;;
+    }
+}</code></pre></details><details><summary>app/Models/Laporan.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class Laporan extends Model
+{
+    use HasFactory;
+
+    public const STATUSES = [&#x27;pending&#x27; =&gt; &#x27;Menunggu&#x27;, &#x27;proses&#x27; =&gt; &#x27;Sedang Diproses&#x27;, &#x27;selesai&#x27; =&gt; &#x27;Selesai&#x27;];
+
+    protected $fillable = [&#x27;judul&#x27;, &#x27;detail&#x27;, &#x27;tanggal&#x27;, &#x27;foto&#x27;];
+
+    protected $attributes = [&#x27;status&#x27; =&gt; &#x27;pending&#x27;];
+
+    protected function casts(): array
+    {
+        return [&#x27;tanggal&#x27; =&gt; &#x27;date&#x27;];
+    }
+
+    public function pelapor(): BelongsTo
+    {
+        return $this-&gt;belongsTo(User::class, &#x27;pelapor_id&#x27;);
+    }
+
+    public function statusDescription(): string
+    {
+        return match ($this-&gt;status) {
+            &#x27;proses&#x27; =&gt; &#x27;Pengaduan sedang ditindaklanjuti.&#x27;,
+            &#x27;selesai&#x27; =&gt; &#x27;Pengaduan telah selesai ditangani.&#x27;,
+            default =&gt; &#x27;Pengaduan menunggu peninjauan admin.&#x27;,
+        };
+    }
+}</code></pre></details><details><summary>database/factories/UserFactory.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace Database\Factories;
+
+use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+
+class UserFactory extends Factory
+{
+    protected static ?string $password;
+
+    public function definition(): array
+    {
+        return [
+            &#x27;name&#x27; =&gt; fake()-&gt;name(),
+            &#x27;email&#x27; =&gt; fake()-&gt;unique()-&gt;safeEmail(),
+            &#x27;email_verified_at&#x27; =&gt; now(),
+            &#x27;password&#x27; =&gt; static::$password ??= Hash::make(&#x27;Password123!&#x27;),
+            &#x27;no_whatsapp&#x27; =&gt; &#x27;081234567890&#x27;,
+            &#x27;alamat&#x27; =&gt; fake()-&gt;address(),
+            &#x27;role&#x27; =&gt; &#x27;warga&#x27;,
+            &#x27;remember_token&#x27; =&gt; Str::random(10),
+        ];
+    }
+
+    public function admin(): static
+    {
+        return $this-&gt;state(fn () =&gt; [&#x27;role&#x27; =&gt; &#x27;admin&#x27;]);
+    }
+
+    public function unverified(): static
+    {
+        return $this-&gt;state(fn () =&gt; [&#x27;email_verified_at&#x27; =&gt; null]);
+    }
+}</code></pre></details><details><summary>database/factories/LaporanFactory.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace Database\Factories;
+
+use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\Factory;
+
+class LaporanFactory extends Factory
+{
+    public function definition(): array
+    {
+        return [
+            &#x27;pelapor_id&#x27; =&gt; User::factory(),
+            &#x27;judul&#x27; =&gt; fake()-&gt;sentence(5),
+            &#x27;detail&#x27; =&gt; fake()-&gt;paragraph(),
+            &#x27;tanggal&#x27; =&gt; fake()-&gt;dateTimeBetween(&#x27;-30 days&#x27;, &#x27;now&#x27;)-&gt;format(&#x27;Y-m-d&#x27;),
+            &#x27;status&#x27; =&gt; &#x27;pending&#x27;,
+        ];
+    }
+}</code></pre></details><h2>Cek sebelum lanjut</h2><div class="note">Migration users dan laporans berstatus Ran. Jangan memakai migrate:fresh pada database berisi data penting.</div><nav><a href='/part-02'>← Part 02</a><a href='/part-04'>Part 04 →</a></nav><footer>Modul E-Report • 26 Oktober 2026 • Berdasarkan source project pengguna. Materi bisa dibaca offline; instalasi dan aset aplikasi memerlukan internet.<br>Rujukan: <a href="https://laravel.com/docs/12.x/installation">Laravel 12</a> · <a href="https://livewire.laravel.com/docs/4.x/components">Komponen Livewire 4</a></footer></main></body></html><script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="6a93551a-7aa5-485b-bb3a-942a903c73c3" data-app-host="app.netlify.com" data-account-tier="free"></script>

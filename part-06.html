@@ -1,0 +1,201 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8">
+<!-- This site is hosted on Netlify. Anyone can build and deploy a site
+     like this one for free: https://netlify.new/?utm_campaign=loops&utm_source=ai-legible&utm_medium=owned&utm_content=comment&utm_id=6a93551a-7aa5-485b-bb3a-942a903c73c3
+     Netlify hosting facts for this site: static/SSR served via Netlify Edge. --><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mengirim laporan dan foto</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f4ed;color:#243d34;font:17px/1.75 Segoe UI,Arial,sans-serif}main{max-width:940px;margin:auto;padding:44px 24px}a{color:#17634d}header{border-bottom:2px solid #243d34;padding-bottom:26px;margin-bottom:30px}h1{font:normal clamp(34px,5vw,54px)/1.15 Georgia,serif}h2{font:normal 29px Georgia,serif;margin-top:36px}.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:#17634d}.note{background:#e5eee4;padding:18px 22px;border-radius:8px}pre{background:#17382e;color:#f2f6ef;padding:20px;border-radius:7px;overflow:auto;font:13px/1.7 Consolas,monospace;max-height:540px}details{border:1px solid #d3dbcf;background:#fffef9;margin:12px 0;border-radius:7px;padding:12px 16px}summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere}li{margin:12px 0}.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fffef9;border:1px solid #d3dbcf;padding:20px;text-decoration:none;border-radius:8px}.card small{display:block;color:#637469}nav{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:30px 0}footer{font-size:13px;color:#637469;margin-top:40px}button{padding:8px 12px;cursor:pointer}a:focus-visible,summary:focus-visible{outline:3px solid #b77c28}@media(max-width:600px){main{padding:24px 16px}.cards{grid-template-columns:1fr}}@media print{pre{max-height:none;white-space:pre-wrap;overflow-wrap:anywhere}details>*{display:block}nav,button{display:none}}</style></head><body><main><nav><a href='/'>← Daftar part</a><span>06 / 10</span></nav><header><p class="eyebrow">Praktik E-Report / Part 06</p><h1>Mengirim laporan dan foto</h1><p>Form pengaduan siap menyimpan laporan milik warga.</p></header><h2>Langkah praktik</h2><pre tabindex="0"><code>php artisan make:class Livewire/ComplaintForm --no-interaction
+php artisan make:livewire Warga/Laporan/Create --class --no-interaction
+php artisan storage:link --no-interaction</code></pre><p>ComplaintForm menyimpan aturan input yang dipakai juga ketika mengedit. WithFileUploads menangani berkas unggahan. Foto boleh kosong; jika diisi harus JPG, PNG, atau WebP maksimal 2 MB.</p><p>Alurnya: isi formulir → validasi → simpan foto → simpan laporan → pindah ke detail. Pelapor diambil dari akun yang sedang login, bukan dari input pengguna. Laporan baru selalu pending.</p><p>storage:link menghubungkan penyimpanan foto ke folder public agar gambar dapat tampil. Jika Windows menolak pembuatan symlink, aktifkan Developer Mode atau jalankan terminal sebagai administrator lalu ulangi perintah tersebut.</p><h2>Kode lengkap</h2><p>Buka satu file, salin seluruh isinya, lalu simpan ke jalur yang tertera di dalam project latihan. Untuk file yang sudah ada, ganti isinya. File Blade dan konfigurasi boleh dibuat lewat VS Code. Pelajari satu pasangan PHP–Blade dalam satu sesi.</p><details><summary>app/Livewire/ComplaintForm.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Livewire;
+
+use Livewire\WithFileUploads;
+
+abstract class ComplaintForm extends WargaPage
+{
+    use WithFileUploads;
+
+    public string $judul = &#x27;&#x27;;
+
+    public string $detail = &#x27;&#x27;;
+
+    public string $tanggal = &#x27;&#x27;;
+
+    public $foto;
+
+    protected function validatedData(): array
+    {
+        $data = $this-&gt;validate([
+            &#x27;judul&#x27; =&gt; &#x27;required|string|max:255&#x27;,
+            &#x27;detail&#x27; =&gt; &#x27;required|string|max:10000&#x27;,
+            &#x27;tanggal&#x27; =&gt; &#x27;required|date_format:Y-m-d|before_or_equal:today&#x27;,
+            &#x27;foto&#x27; =&gt; &#x27;nullable|image|mimes:jpg,jpeg,png,webp|max:2048&#x27;,
+        ]);
+        unset($data[&#x27;foto&#x27;]);
+        if ($this-&gt;foto) {
+            $data[&#x27;foto&#x27;] = $this-&gt;foto-&gt;store(&#x27;laporan&#x27;, &#x27;public&#x27;);
+        }
+
+        return $data;
+    }
+}</code></pre></details><details><summary>app/Livewire/Warga/Laporan/Create.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Livewire\Warga\Laporan;
+
+use App\Livewire\ComplaintForm;
+use App\Models\Laporan;
+use App\Support\StoredImage;
+use Illuminate\Contracts\View\View;
+
+class Create extends ComplaintForm
+{
+    public function mount(): void
+    {
+        $this-&gt;tanggal = today()-&gt;format(&#x27;Y-m-d&#x27;);
+    }
+
+    public function save(): void
+    {
+        $this-&gt;authorize(&#x27;create&#x27;, Laporan::class);
+        $data = $this-&gt;validatedData();
+        try {
+            $laporan = new Laporan($data);
+            $laporan-&gt;pelapor()-&gt;associate(auth()-&gt;user());
+            $laporan-&gt;status = &#x27;pending&#x27;;
+            $laporan-&gt;save();
+        } catch (\Throwable $exception) {
+            StoredImage::delete($data[&#x27;foto&#x27;] ?? null, &#x27;laporan&#x27;);
+            throw $exception;
+        }
+        session()-&gt;flash(&#x27;success&#x27;, &#x27;Pengaduan berhasil dikirim. Kami akan segera meninjaunya.&#x27;);
+        $this-&gt;redirectRoute(&#x27;warga.laporan.show&#x27;, [&#x27;laporan&#x27; =&gt; $laporan-&gt;id]);
+    }
+
+    public function render(): View
+    {
+        return view(&#x27;livewire.warga.laporan.create&#x27;)-&gt;title(&#x27;Buat Pengaduan&#x27;);
+    }
+}</code></pre></details><details><summary>resources/views/livewire/warga/laporan/create.blade.php</summary><pre tabindex="0"><code>&lt;div&gt;
+    &lt;div class=&quot;mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between&quot;&gt;
+        &lt;div&gt;
+            &lt;h1 class=&quot;font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl&quot;&gt;Buat Pengaduan&lt;/h1&gt;
+            &lt;p class=&quot;mt-2 text-sm leading-relaxed text-slate-500&quot;&gt;Sampaikan masalah dengan jelas agar dapat ditindaklanjuti.&lt;/p&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;grid items-start gap-6 lg:grid-cols-[1fr_300px]&quot;&gt;
+        &lt;form wire:submit=&quot;save&quot; class=&quot;rounded-2xl border border-slate-200 bg-white p-6 sm:p-8&quot;&gt;
+            &lt;h2 class=&quot;mb-6 font-display text-lg font-bold&quot;&gt;Informasi Pengaduan&lt;/h2&gt;
+            {{-- Formulir pengaduan: setiap input terhubung ke properti Livewire --}}
+            &lt;div class=&quot;space-y-6&quot;&gt;
+                &lt;div&gt;
+                    &lt;label for=&quot;judul&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Judul pengaduan&lt;/label&gt;
+                    &lt;input
+                        type=&quot;text&quot;
+                        id=&quot;judul&quot;
+                        name=&quot;judul&quot;
+                        aria-describedby=&quot;judul-help judul-error&quot;
+                        @error(&#x27;judul&#x27;)
+                        aria-invalid=&quot;true&quot;
+                        @enderror
+                        wire:model=&quot;judul&quot;
+                        placeholder=&quot;Contoh: Lampu jalan mati di Jalan Melati&quot;
+                        maxlength=&quot;255&quot;
+                        required
+                        class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+                    &gt;
+                    &lt;p id=&quot;judul-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;Gunakan judul singkat yang menggambarkan masalah.&lt;/p&gt;
+                    @error(&#x27;judul&#x27;)
+                        &lt;p id=&quot;judul-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                    @enderror
+                &lt;/div&gt;
+                &lt;div&gt;
+                    &lt;label for=&quot;detail&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Deskripsi pengaduan&lt;/label&gt;
+                    &lt;textarea
+                        id=&quot;detail&quot;
+                        name=&quot;detail&quot;
+                        aria-describedby=&quot;detail-help detail-error&quot;
+                        @error(&#x27;detail&#x27;)
+                        aria-invalid=&quot;true&quot;
+                        @enderror
+                        wire:model=&quot;detail&quot;
+                        rows=&quot;6&quot;
+                        placeholder=&quot;Ceritakan masalah secara jelas, termasuk lokasi dan dampaknya bagi warga…&quot;
+                        maxlength=&quot;10000&quot;
+                        required
+                        class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 min-h-32&quot;
+                    &gt;&lt;/textarea&gt;
+                    &lt;p id=&quot;detail-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;Jelaskan lokasi kejadian dalam deskripsi. Maksimal 10.000 karakter.&lt;/p&gt;
+                    @error(&#x27;detail&#x27;)
+                        &lt;p id=&quot;detail-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                    @enderror
+                &lt;/div&gt;
+                &lt;div&gt;
+                    &lt;label for=&quot;tanggal&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Tanggal kejadian&lt;/label&gt;
+                    &lt;input
+                        type=&quot;date&quot;
+                        id=&quot;tanggal&quot;
+                        name=&quot;tanggal&quot;
+                        aria-describedby=&quot;tanggal-error&quot;
+                        @error(&#x27;tanggal&#x27;)
+                        aria-invalid=&quot;true&quot;
+                        @enderror
+                        wire:model=&quot;tanggal&quot;
+                        max=&quot;{{ today()-&gt;format(&#x27;Y-m-d&#x27;) }}&quot;
+                        required
+                        class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700&quot;
+                    &gt;
+                    @error(&#x27;tanggal&#x27;)
+                        &lt;p id=&quot;tanggal-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                    @enderror
+                &lt;/div&gt;
+                &lt;div class=&quot;rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5&quot;&gt;
+                    &lt;div&gt;
+                        &lt;label for=&quot;foto&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Foto bukti (opsional)&lt;/label&gt;
+                        &lt;input
+                            type=&quot;file&quot;
+                            id=&quot;foto&quot;
+                            name=&quot;foto&quot;
+                            aria-describedby=&quot;foto-help foto-error&quot;
+                            @error(&#x27;foto&#x27;)
+                            aria-invalid=&quot;true&quot;
+                            @enderror
+                            wire:model=&quot;foto&quot;
+                            accept=&quot;image/jpeg,image/png,image/webp&quot;
+                            class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700&quot;
+                        &gt;
+                        &lt;p id=&quot;foto-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;JPG, PNG, atau WebP. Maksimal 2 MB. Pilih foto yang memperjelas pengaduan.&lt;/p&gt;
+                        @error(&#x27;foto&#x27;)
+                            &lt;p id=&quot;foto-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                        @enderror
+                    &lt;/div&gt;
+                    &lt;p wire:loading wire:target=&quot;foto&quot; role=&quot;status&quot; class=&quot;mt-3 text-xs text-blue-600&quot;&gt;Mengunggah foto…&lt;/p&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;mt-8 flex flex-wrap justify-end gap-3 border-t border-slate-100 pt-6&quot;&gt;
+                &lt;a
+                    href=&quot;{{ route(&#x27;warga.laporan.index&#x27;) }}&quot;
+                    class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition border border-slate-200 bg-white text-slate-700 hover:bg-slate-50&quot;
+                &gt;Batal&lt;/a&gt;
+                &lt;button
+                    type=&quot;submit&quot;
+                    wire:loading.attr=&quot;disabled&quot;
+                    wire:target=&quot;save,foto&quot;
+                    class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700&quot;
+                &gt;
+                    &lt;span wire:loading.remove wire:target=&quot;save&quot;&gt;Kirim Pengaduan&lt;/span&gt;
+                    &lt;span wire:loading wire:target=&quot;save&quot;&gt;Mengirim…&lt;/span&gt;
+                    &lt;i data-lucide=&quot;send&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+                &lt;/button&gt;
+            &lt;/div&gt;
+        &lt;/form&gt;
+        &lt;aside class=&quot;rounded-2xl border border-blue-100 bg-blue-50/60 p-6&quot;&gt;
+            &lt;i data-lucide=&quot;lightbulb&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0 mb-4 h-7 w-7 text-blue-600&quot;&gt;&lt;/i&gt;
+            &lt;h2 class=&quot;font-display font-bold text-blue-950&quot;&gt;Pengaduan yang baik&lt;/h2&gt;
+            &lt;ul class=&quot;mt-4 space-y-4 text-sm leading-6 text-slate-600&quot;&gt;
+                &lt;li&gt;Jelaskan masalah dan lokasi kejadian secara spesifik.&lt;/li&gt;
+                &lt;li&gt;Sertakan foto yang relevan bila tersedia.&lt;/li&gt;
+                &lt;li&gt;Gunakan bahasa yang sopan dan informasi yang benar.&lt;/li&gt;
+                &lt;li&gt;Hindari mencantumkan data pribadi orang lain.&lt;/li&gt;
+            &lt;/ul&gt;
+            &lt;p class=&quot;mt-6 border-t border-blue-100 pt-4 text-xs leading-6 text-blue-700&quot;&gt;Pengaduan Anda akan berstatus menunggu setelah dikirim.&lt;/p&gt;
+        &lt;/aside&gt;
+    &lt;/div&gt;
+&lt;/div&gt;</code></pre></details><h2>Cek sebelum lanjut</h2><div class="note">Form dan kelas Create tersedia; public/storage sudah terhubung. Tujuan halaman detail dibuat pada part berikutnya.</div><nav><a href='/part-05'>← Part 05</a><a href='/part-07'>Part 07 →</a></nav><footer>Modul E-Report • 26 Oktober 2026 • Berdasarkan source project pengguna. Materi bisa dibaca offline; instalasi dan aset aplikasi memerlukan internet.<br>Rujukan: <a href="https://laravel.com/docs/12.x/installation">Laravel 12</a> · <a href="https://livewire.laravel.com/docs/4.x/components">Komponen Livewire 4</a></footer></main></body></html><script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="6a93551a-7aa5-485b-bb3a-942a903c73c3" data-app-host="app.netlify.com" data-account-tier="free"></script>

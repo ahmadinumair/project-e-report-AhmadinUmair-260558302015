@@ -1,0 +1,497 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8">
+<!-- This site is hosted on Netlify. Anyone can build and deploy a site
+     like this one for free: https://netlify.new/?utm_campaign=loops&utm_source=ai-legible&utm_medium=owned&utm_content=comment&utm_id=6a93551a-7aa5-485b-bb3a-942a903c73c3
+     Netlify hosting facts for this site: static/SSR served via Netlify Edge. --><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dashboard warga dan profil</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f4ed;color:#243d34;font:17px/1.75 Segoe UI,Arial,sans-serif}main{max-width:940px;margin:auto;padding:44px 24px}a{color:#17634d}header{border-bottom:2px solid #243d34;padding-bottom:26px;margin-bottom:30px}h1{font:normal clamp(34px,5vw,54px)/1.15 Georgia,serif}h2{font:normal 29px Georgia,serif;margin-top:36px}.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:#17634d}.note{background:#e5eee4;padding:18px 22px;border-radius:8px}pre{background:#17382e;color:#f2f6ef;padding:20px;border-radius:7px;overflow:auto;font:13px/1.7 Consolas,monospace;max-height:540px}details{border:1px solid #d3dbcf;background:#fffef9;margin:12px 0;border-radius:7px;padding:12px 16px}summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere}li{margin:12px 0}.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fffef9;border:1px solid #d3dbcf;padding:20px;text-decoration:none;border-radius:8px}.card small{display:block;color:#637469}nav{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:30px 0}footer{font-size:13px;color:#637469;margin-top:40px}button{padding:8px 12px;cursor:pointer}a:focus-visible,summary:focus-visible{outline:3px solid #b77c28}@media(max-width:600px){main{padding:24px 16px}.cards{grid-template-columns:1fr}}@media print{pre{max-height:none;white-space:pre-wrap;overflow-wrap:anywhere}details>*{display:block}nav,button{display:none}}</style></head><body><main><nav><a href='/'>← Daftar part</a><span>08 / 10</span></nav><header><p class="eyebrow">Praktik E-Report / Part 08</p><h1>Dashboard warga dan profil</h1><p>Warga bisa melihat ringkasan dan memperbarui identitas.</p></header><h2>Langkah praktik</h2><pre tabindex="0"><code>php artisan make:livewire Warga/Dashboard --class --no-interaction
+php artisan make:livewire Warga/Profile --class --no-interaction</code></pre><p>Dashboard menghitung laporan milik pengguna yang sedang login. Profil mengubah nama, kontak, alamat, foto, dan password. Untuk mengganti password, pengguna harus mengisi password saat ini.</p><p>wire:poll mengambil pembaruan secara berkala ketika halaman terbuka. Angka statistik berasal dari database, bukan angka yang ditulis manual di HTML.</p><h2>Kode lengkap</h2><p>Buka satu file, salin seluruh isinya, lalu simpan ke jalur yang tertera di dalam project latihan. Untuk file yang sudah ada, ganti isinya. File Blade dan konfigurasi boleh dibuat lewat VS Code. Pelajari satu pasangan PHP–Blade dalam satu sesi.</p><details><summary>app/Livewire/Warga/Dashboard.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Livewire\Warga;
+
+use App\Livewire\WargaPage;
+use App\Models\Laporan;
+use Illuminate\Contracts\View\View;
+
+class Dashboard extends WargaPage
+{
+    public function render(): View
+    {
+        $query = auth()-&gt;user()-&gt;laporans();
+        $counts = (clone $query)-&gt;selectRaw(&#x27;status, count(*) as jumlah&#x27;)-&gt;groupBy(&#x27;status&#x27;)-&gt;pluck(&#x27;jumlah&#x27;, &#x27;status&#x27;);
+        $stats = array_map(fn ($status) =&gt; (int) ($counts[$status] ?? 0), array_combine(array_keys(Laporan::STATUSES), array_keys(Laporan::STATUSES)));
+        $total = array_sum($stats);
+        $recent = $query-&gt;latest()-&gt;orderByDesc(&#x27;id&#x27;)-&gt;limit(5)-&gt;get();
+
+        return view(&#x27;livewire.warga.dashboard&#x27;, compact(&#x27;stats&#x27;, &#x27;total&#x27;, &#x27;recent&#x27;))-&gt;title(&#x27;Dashboard Warga&#x27;);
+    }
+}</code></pre></details><details><summary>resources/views/livewire/warga/dashboard.blade.php</summary><pre tabindex="0"><code>&lt;div wire:poll.30s&gt;
+    &lt;div class=&quot;mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between&quot;&gt;
+        &lt;div&gt;
+            &lt;h1 class=&quot;font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl&quot;&gt;{{ &#x27;Selamat Datang, &#x27;.auth()-&gt;user()-&gt;name.&#x27;!&#x27; }}&lt;/h1&gt;
+            &lt;p class=&quot;mt-2 text-sm leading-relaxed text-slate-500&quot;&gt;Terima kasih telah peduli. Mari wujudkan lingkungan yang lebih baik.&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;a
+            href=&quot;{{ route(&#x27;warga.laporan.create&#x27;) }}&quot;
+            class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700&quot;
+        &gt;
+            &lt;i data-lucide=&quot;plus&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+            Buat Pengaduan
+        &lt;/a&gt;
+    &lt;/div&gt;
+    {{-- Ringkasan dari data yang dikirim oleh class Livewire --}}
+    &lt;div class=&quot;mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4&quot;&gt;
+        &lt;div class=&quot;rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs&quot;&gt;
+            &lt;div class=&quot;flex items-center justify-between gap-3&quot;&gt;
+                &lt;span class=&quot;text-sm text-slate-500&quot;&gt;Total Pengaduan&lt;/span&gt;
+                &lt;span class=&quot;rounded-xl p-2.5 bg-slate-100 text-slate-600&quot;&gt;
+                    &lt;i data-lucide=&quot;files&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0&quot;&gt;&lt;/i&gt;
+                &lt;/span&gt;
+            &lt;/div&gt;
+            &lt;p class=&quot;mt-3 font-display text-3xl font-bold tracking-tight&quot;&gt;{{ number_format($total) }}&lt;/p&gt;
+            &lt;p class=&quot;mt-2 text-xs text-slate-400&quot;&gt;Pengaduan tercatat&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs&quot;&gt;
+            &lt;div class=&quot;flex items-center justify-between gap-3&quot;&gt;
+                &lt;span class=&quot;text-sm text-slate-500&quot;&gt;Menunggu&lt;/span&gt;
+                &lt;span class=&quot;rounded-xl p-2.5 bg-amber-50 text-amber-600&quot;&gt;
+                    &lt;i data-lucide=&quot;clock-3&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0&quot;&gt;&lt;/i&gt;
+                &lt;/span&gt;
+            &lt;/div&gt;
+            &lt;p class=&quot;mt-3 font-display text-3xl font-bold tracking-tight&quot;&gt;{{ number_format($stats[&#x27;pending&#x27;]) }}&lt;/p&gt;
+            &lt;p class=&quot;mt-2 text-xs text-slate-400&quot;&gt;Pengaduan tercatat&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs&quot;&gt;
+            &lt;div class=&quot;flex items-center justify-between gap-3&quot;&gt;
+                &lt;span class=&quot;text-sm text-slate-500&quot;&gt;Sedang Diproses&lt;/span&gt;
+                &lt;span class=&quot;rounded-xl p-2.5 bg-blue-50 text-blue-600&quot;&gt;
+                    &lt;i data-lucide=&quot;loader-circle&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0&quot;&gt;&lt;/i&gt;
+                &lt;/span&gt;
+            &lt;/div&gt;
+            &lt;p class=&quot;mt-3 font-display text-3xl font-bold tracking-tight&quot;&gt;{{ number_format($stats[&#x27;proses&#x27;]) }}&lt;/p&gt;
+            &lt;p class=&quot;mt-2 text-xs text-slate-400&quot;&gt;Pengaduan tercatat&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs&quot;&gt;
+            &lt;div class=&quot;flex items-center justify-between gap-3&quot;&gt;
+                &lt;span class=&quot;text-sm text-slate-500&quot;&gt;Selesai&lt;/span&gt;
+                &lt;span class=&quot;rounded-xl p-2.5 bg-emerald-50 text-emerald-600&quot;&gt;
+                    &lt;i data-lucide=&quot;circle-check&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0&quot;&gt;&lt;/i&gt;
+                &lt;/span&gt;
+            &lt;/div&gt;
+            &lt;p class=&quot;mt-3 font-display text-3xl font-bold tracking-tight&quot;&gt;{{ number_format($stats[&#x27;selesai&#x27;]) }}&lt;/p&gt;
+            &lt;p class=&quot;mt-2 text-xs text-slate-400&quot;&gt;Pengaduan tercatat&lt;/p&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;mb-8 flex flex-col gap-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-6 sm:flex-row sm:items-center sm:justify-between&quot;&gt;
+        &lt;div class=&quot;flex items-start gap-4&quot;&gt;
+            &lt;span class=&quot;hidden rounded-xl bg-white p-3 text-blue-600 sm:inline-flex&quot;&gt;
+                &lt;i data-lucide=&quot;megaphone&quot; aria-hidden=&quot;true&quot; class=&quot;h-7 w-7 shrink-0&quot;&gt;&lt;/i&gt;
+            &lt;/span&gt;
+            &lt;div&gt;
+                &lt;h2 class=&quot;font-display font-bold text-blue-950&quot;&gt;Lihat masalah di sekitar Anda?&lt;/h2&gt;
+                &lt;p class=&quot;mt-2 max-w-xl text-sm leading-6 text-blue-800/70&quot;&gt;Jalan rusak, lampu mati, atau fasilitas umum bermasalah. Suara Anda membantu kami bertindak.&lt;/p&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;a href=&quot;{{ route(&#x27;warga.laporan.create&#x27;) }}&quot; class=&quot;inline-flex shrink-0 items-center gap-2 text-sm font-bold text-blue-600&quot;&gt;
+            Sampaikan sekarang
+            &lt;i data-lucide=&quot;arrow-right&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+        &lt;/a&gt;
+    &lt;/div&gt;
+    {{-- Pengaduan terbaru --}}
+    &lt;div class=&quot;overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs&quot;&gt;
+        &lt;div class=&quot;flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-5&quot;&gt;
+            &lt;div&gt;
+                &lt;h2 class=&quot;font-display font-bold&quot;&gt;Pengaduan Terbaru&lt;/h2&gt;
+                &lt;p class=&quot;mt-1 text-xs text-slate-400&quot;&gt;Perkembangan terbaru dari pengaduan Anda&lt;/p&gt;
+            &lt;/div&gt;
+            &lt;a href=&quot;{{ route(&#x27;warga.laporan.index&#x27;) }}&quot; class=&quot;inline-flex items-center gap-2 text-xs font-bold text-blue-600&quot;&gt;
+                Lihat semua
+                &lt;i data-lucide=&quot;arrow-right&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+            &lt;/a&gt;
+        &lt;/div&gt;
+        @if($recent-&gt;isEmpty())
+            &lt;div class=&quot;px-6 py-16 text-center&quot;&gt;
+                &lt;div class=&quot;mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600&quot;&gt;
+                    &lt;i data-lucide=&quot;inbox&quot; aria-hidden=&quot;true&quot; class=&quot;h-8 w-8 shrink-0&quot;&gt;&lt;/i&gt;
+                &lt;/div&gt;
+                &lt;h3 class=&quot;font-display text-lg font-bold text-slate-800&quot;&gt;Belum ada pengaduan&lt;/h3&gt;
+                &lt;p class=&quot;mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500&quot;&gt;Ada masalah di lingkungan sekitar? Sampaikan pengaduan pertama Anda.&lt;/p&gt;
+                &lt;div class=&quot;mt-6&quot;&gt;
+                    &lt;a
+                        href=&quot;{{ route(&#x27;warga.laporan.create&#x27;) }}&quot;
+                        class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700&quot;
+                    &gt;
+                        &lt;i data-lucide=&quot;plus&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+                        Buat Pengaduan
+                    &lt;/a&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+        @else
+            &lt;div class=&quot;overflow-x-auto&quot;&gt;
+                &lt;table class=&quot;w-full min-w-[580px] text-left text-sm&quot;&gt;
+                    &lt;thead class=&quot;bg-slate-50/70 text-xs text-slate-400&quot;&gt;
+                        &lt;tr&gt;
+                            &lt;th class=&quot;px-6 py-3 font-medium&quot;&gt;Pengaduan&lt;/th&gt;
+                            &lt;th class=&quot;px-4 py-3 font-medium&quot;&gt;Tanggal Pengajuan&lt;/th&gt;
+                            &lt;th class=&quot;px-4 py-3 font-medium&quot;&gt;Status&lt;/th&gt;
+                            &lt;th class=&quot;px-6 py-3 text-right font-medium&quot;&gt;Aksi&lt;/th&gt;
+                        &lt;/tr&gt;
+                    &lt;/thead&gt;
+                    &lt;tbody class=&quot;divide-y divide-slate-100&quot;&gt;
+                        @foreach($recent as $laporan)
+                            &lt;tr class=&quot;hover:bg-slate-50/60&quot;&gt;
+                                &lt;td class=&quot;max-w-xs px-6 py-5&quot;&gt;
+                                    &lt;p class=&quot;truncate font-semibold text-slate-800&quot;&gt;{{ $laporan-&gt;judul }}&lt;/p&gt;
+                                    &lt;p class=&quot;mt-1 text-xs text-slate-400&quot;&gt;# {{ str_pad($laporan-&gt;id, 5, &#x27;0&#x27;, STR_PAD_LEFT) }}&lt;/p&gt;
+                                &lt;/td&gt;
+                                &lt;td class=&quot;px-4 py-5 text-xs text-slate-500&quot;&gt;{{ $laporan-&gt;created_at-&gt;translatedFormat(&#x27;d M Y&#x27;) }}&lt;/td&gt;
+                                &lt;td class=&quot;px-4 py-5&quot;&gt;
+                                    &lt;span @class([
+                                    &#x27;inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold&#x27;,
+                                    &#x27;bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200&#x27; =&gt; $laporan-&gt;status === &#x27;pending&#x27;,
+                                    &#x27;bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200&#x27; =&gt; $laporan-&gt;status === &#x27;proses&#x27;,
+                                    &#x27;bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200&#x27; =&gt; $laporan-&gt;status === &#x27;selesai&#x27;,
+                                    ])&gt;
+                                        &lt;span class=&quot;h-1.5 w-1.5 rounded-full bg-current&quot;&gt;&lt;/span&gt;
+                                        {{ \App\Models\Laporan::STATUSES[$laporan-&gt;status] ?? $laporan-&gt;status }}
+                                    &lt;/span&gt;
+                                &lt;/td&gt;
+                                &lt;td class=&quot;px-6 py-5 text-right&quot;&gt;
+                                    &lt;a
+                                        href=&quot;{{ route(&#x27;warga.laporan.show&#x27;, $laporan) }}&quot;
+                                        class=&quot;inline-flex items-center gap-1 text-xs font-bold text-blue-600&quot;
+                                    &gt;
+                                        Detail
+                                        &lt;i data-lucide=&quot;arrow-up-right&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+                                    &lt;/a&gt;
+                                &lt;/td&gt;
+                            &lt;/tr&gt;
+                        @endforeach
+                    &lt;/tbody&gt;
+                &lt;/table&gt;
+            &lt;/div&gt;
+        @endif
+    &lt;/div&gt;
+    &lt;div class=&quot;mt-7 flex items-center gap-2 text-xs text-slate-400&quot;&gt;
+        &lt;i data-lucide=&quot;info&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+        Pengaduan dapat diedit atau dihapus selama berstatus menunggu.
+    &lt;/div&gt;
+&lt;/div&gt;</code></pre></details><details><summary>app/Livewire/Warga/Profile.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Livewire\Warga;
+
+use App\Livewire\WargaPage;
+use App\Models\User;
+use App\Support\StoredImage;
+use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
+use Livewire\WithFileUploads;
+
+class Profile extends WargaPage
+{
+    use WithFileUploads;
+
+    public string $name = &#x27;&#x27;;
+
+    public string $no_whatsapp = &#x27;&#x27;;
+
+    public string $alamat = &#x27;&#x27;;
+
+    public $foto;
+
+    public string $current_password = &#x27;&#x27;;
+
+    public string $password = &#x27;&#x27;;
+
+    public string $password_confirmation = &#x27;&#x27;;
+
+    public function mount(): void
+    {
+        $user = auth()-&gt;user();
+        $this-&gt;name = $user-&gt;name;
+        $this-&gt;no_whatsapp = $user-&gt;no_whatsapp;
+        $this-&gt;alamat = $user-&gt;alamat ?? &#x27;&#x27;;
+    }
+
+    public function updateProfile(): void
+    {
+        $data = $this-&gt;validate([
+            &#x27;name&#x27; =&gt; &#x27;required|string|max:100&#x27;,
+            &#x27;no_whatsapp&#x27; =&gt; [&#x27;required&#x27;, &#x27;regex:/^\+?[0-9]{9,15}$/&#x27;],
+            &#x27;alamat&#x27; =&gt; &#x27;required|string|max:2000&#x27;,
+            &#x27;foto&#x27; =&gt; &#x27;nullable|image|mimes:jpg,jpeg,png,webp|max:2048&#x27;,
+        ]);
+        unset($data[&#x27;foto&#x27;]);
+        if ($this-&gt;foto) {
+            $data[&#x27;foto&#x27;] = $this-&gt;foto-&gt;store(&#x27;profil&#x27;, &#x27;public&#x27;);
+        }
+        try {
+            $oldPhoto = DB::transaction(function () use ($data): ?string {
+                $user = User::query()-&gt;lockForUpdate()-&gt;findOrFail(auth()-&gt;id());
+                $oldPhoto = $user-&gt;foto;
+                $user-&gt;update($data);
+
+                return $oldPhoto;
+            });
+        } catch (\Throwable $exception) {
+            StoredImage::delete($data[&#x27;foto&#x27;] ?? null, &#x27;profil&#x27;);
+            throw $exception;
+        }
+        if (isset($data[&#x27;foto&#x27;])) {
+            StoredImage::delete($oldPhoto, &#x27;profil&#x27;);
+        }
+        auth()-&gt;user()-&gt;refresh();
+        $this-&gt;reset(&#x27;foto&#x27;);
+        session()-&gt;flash(&#x27;success&#x27;, &#x27;Profil berhasil diperbarui.&#x27;);
+    }
+
+    public function updatePassword(): void
+    {
+        $this-&gt;validate([
+            &#x27;current_password&#x27; =&gt; &#x27;required|current_password&#x27;,
+            &#x27;password&#x27; =&gt; [&#x27;required&#x27;, &#x27;string&#x27;, &#x27;max:255&#x27;, &#x27;confirmed&#x27;, &#x27;different:current_password&#x27;, Password::min(8)-&gt;letters()-&gt;numbers()],
+        ]);
+        $user = auth()-&gt;user();
+        $user-&gt;password = $this-&gt;password;
+        $user-&gt;setRememberToken(Str::random(60));
+        $user-&gt;save();
+        $this-&gt;reset(&#x27;current_password&#x27;, &#x27;password&#x27;, &#x27;password_confirmation&#x27;);
+        session()-&gt;regenerate();
+        session()-&gt;flash(&#x27;success&#x27;, &#x27;Password berhasil diubah.&#x27;);
+    }
+
+    public function render(): View
+    {
+        return view(&#x27;livewire.warga.profile&#x27;)-&gt;title(&#x27;Profil Saya&#x27;);
+    }
+}</code></pre></details><details><summary>resources/views/livewire/warga/profile.blade.php</summary><pre tabindex="0"><code>&lt;div&gt;
+    &lt;div class=&quot;mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between&quot;&gt;
+        &lt;div&gt;
+            &lt;h1 class=&quot;font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl&quot;&gt;Profil Saya&lt;/h1&gt;
+            &lt;p class=&quot;mt-2 text-sm leading-relaxed text-slate-500&quot;&gt;Kelola informasi pribadi dan keamanan akun Anda.&lt;/p&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+    @if(session(&#x27;success&#x27;))
+        &lt;div role=&quot;status&quot; class=&quot;mb-6 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800&quot;&gt;
+            &lt;i data-lucide=&quot;circle-check&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0&quot;&gt;&lt;/i&gt;
+            &lt;span&gt;{{ session(&#x27;success&#x27;) }}&lt;/span&gt;
+        &lt;/div&gt;
+    @endif
+    &lt;div class=&quot;grid items-start gap-6 lg:grid-cols-[280px_1fr]&quot;&gt;
+        &lt;aside class=&quot;rounded-2xl border border-slate-200 bg-white p-7 text-center&quot;&gt;
+            @if(auth()-&gt;user()-&gt;foto)
+                &lt;img src=&quot;{{ Storage::disk(&#x27;public&#x27;)-&gt;url(auth()-&gt;user()-&gt;foto) }}&quot; alt=&quot;Foto profil Anda&quot; class=&quot;mx-auto h-24 w-24 rounded-full object-cover&quot;&gt;
+            @else
+                &lt;div class=&quot;mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-blue-50 font-display text-3xl font-bold text-blue-600&quot;&gt;{{ mb_substr(auth()-&gt;user()-&gt;name, 0, 1) }}&lt;/div&gt;
+            @endif
+            &lt;h2 class=&quot;mt-5 font-display font-bold break-words&quot;&gt;{{ auth()-&gt;user()-&gt;name }}&lt;/h2&gt;
+            &lt;p class=&quot;mt-2 text-xs break-words text-slate-500&quot;&gt;{{ auth()-&gt;user()-&gt;email }}&lt;/p&gt;
+            &lt;span class=&quot;mt-4 inline-flex rounded-full bg-blue-50 px-4 py-1 text-xs font-bold text-blue-600&quot;&gt;Warga&lt;/span&gt;
+            &lt;dl class=&quot;mt-6 space-y-4 border-t border-slate-100 pt-5 text-left text-xs&quot;&gt;
+                &lt;div&gt;
+                    &lt;dt class=&quot;text-slate-400&quot;&gt;WhatsApp&lt;/dt&gt;
+                    &lt;dd class=&quot;mt-1.5 text-slate-700&quot;&gt;{{ auth()-&gt;user()-&gt;no_whatsapp ?: &#x27;Belum diisi&#x27; }}&lt;/dd&gt;
+                &lt;/div&gt;
+                &lt;div&gt;
+                    &lt;dt class=&quot;text-slate-400&quot;&gt;Alamat&lt;/dt&gt;
+                    &lt;dd class=&quot;mt-1.5 leading-6 break-words text-slate-700&quot;&gt;{{ auth()-&gt;user()-&gt;alamat ?: &#x27;Belum diisi&#x27; }}&lt;/dd&gt;
+                &lt;/div&gt;
+            &lt;/dl&gt;
+        &lt;/aside&gt;
+        &lt;div class=&quot;space-y-6&quot;&gt;
+            &lt;form wire:submit=&quot;updateProfile&quot; class=&quot;rounded-2xl border border-slate-200 bg-white p-6 sm:p-8&quot;&gt;
+                &lt;h2 class=&quot;font-display text-lg font-bold&quot;&gt;Informasi Pribadi&lt;/h2&gt;
+                &lt;p class=&quot;mt-2 text-xs text-slate-500&quot;&gt;Pastikan informasi kontak Anda selalu terbaru.&lt;/p&gt;
+                &lt;div class=&quot;mt-7 space-y-5&quot;&gt;
+                    &lt;div&gt;
+                        &lt;label for=&quot;name&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Nama lengkap&lt;/label&gt;
+                        &lt;input
+                            type=&quot;text&quot;
+                            id=&quot;name&quot;
+                            name=&quot;name&quot;
+                            aria-describedby=&quot;name-error&quot;
+                            @error(&#x27;name&#x27;)
+                            aria-invalid=&quot;true&quot;
+                            @enderror
+                            wire:model=&quot;name&quot;
+                            autocomplete=&quot;name&quot;
+                            required
+                            class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+                        &gt;
+                        @error(&#x27;name&#x27;)
+                            &lt;p id=&quot;name-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                        @enderror
+                    &lt;/div&gt;
+                    &lt;div&gt;
+                        &lt;label for=&quot;email&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Email&lt;/label&gt;
+                        &lt;input
+                            type=&quot;email&quot;
+                            id=&quot;email&quot;
+                            name=&quot;email&quot;
+                            aria-describedby=&quot;email-help email-error&quot;
+                            @error(&#x27;email&#x27;)
+                            aria-invalid=&quot;true&quot;
+                            @enderror
+                            value=&quot;{{ auth()-&gt;user()-&gt;email }}&quot;
+                            readonly
+                            class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700&quot;
+                        &gt;
+                        &lt;p id=&quot;email-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;Email tidak dapat diubah.&lt;/p&gt;
+                        @error(&#x27;email&#x27;)
+                            &lt;p id=&quot;email-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                        @enderror
+                    &lt;/div&gt;
+                    &lt;div&gt;
+                        &lt;label for=&quot;no_whatsapp&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Nomor WhatsApp&lt;/label&gt;
+                        &lt;input
+                            type=&quot;tel&quot;
+                            id=&quot;no_whatsapp&quot;
+                            name=&quot;no_whatsapp&quot;
+                            aria-describedby=&quot;no_whatsapp-error&quot;
+                            @error(&#x27;no_whatsapp&#x27;)
+                            aria-invalid=&quot;true&quot;
+                            @enderror
+                            wire:model=&quot;no_whatsapp&quot;
+                            autocomplete=&quot;tel&quot;
+                            required
+                            class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+                        &gt;
+                        @error(&#x27;no_whatsapp&#x27;)
+                            &lt;p id=&quot;no_whatsapp-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                        @enderror
+                    &lt;/div&gt;
+                    &lt;div&gt;
+                        &lt;label for=&quot;alamat&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Alamat&lt;/label&gt;
+                        &lt;textarea
+                            id=&quot;alamat&quot;
+                            name=&quot;alamat&quot;
+                            aria-describedby=&quot;alamat-error&quot;
+                            @error(&#x27;alamat&#x27;)
+                            aria-invalid=&quot;true&quot;
+                            @enderror
+                            wire:model=&quot;alamat&quot;
+                            autocomplete=&quot;street-address&quot;
+                            rows=&quot;3&quot;
+                            required
+                            class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 min-h-32&quot;
+                        &gt;&lt;/textarea&gt;
+                        @error(&#x27;alamat&#x27;)
+                            &lt;p id=&quot;alamat-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                        @enderror
+                    &lt;/div&gt;
+                    &lt;div&gt;
+                        &lt;label for=&quot;foto&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Foto profil&lt;/label&gt;
+                        &lt;input
+                            type=&quot;file&quot;
+                            id=&quot;foto&quot;
+                            name=&quot;foto&quot;
+                            aria-describedby=&quot;foto-help foto-error&quot;
+                            @error(&#x27;foto&#x27;)
+                            aria-invalid=&quot;true&quot;
+                            @enderror
+                            wire:model=&quot;foto&quot;
+                            accept=&quot;image/jpeg,image/png,image/webp&quot;
+                            class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700&quot;
+                        &gt;
+                        &lt;p id=&quot;foto-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;JPG, PNG, atau WebP. Maksimal 2 MB.&lt;/p&gt;
+                        @error(&#x27;foto&#x27;)
+                            &lt;p id=&quot;foto-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                        @enderror
+                    &lt;/div&gt;
+                    &lt;p wire:loading wire:target=&quot;foto&quot; class=&quot;text-xs text-blue-600&quot;&gt;Mengunggah foto…&lt;/p&gt;
+                &lt;/div&gt;
+                &lt;div class=&quot;mt-7 flex justify-end&quot;&gt;
+                    &lt;button
+                        type=&quot;submit&quot;
+                        wire:loading.attr=&quot;disabled&quot;
+                        wire:target=&quot;updateProfile,foto&quot;
+                        class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700&quot;
+                    &gt;
+                        &lt;span wire:loading.remove wire:target=&quot;updateProfile&quot;&gt;Simpan Profil&lt;/span&gt;
+                        &lt;span wire:loading wire:target=&quot;updateProfile&quot;&gt;Menyimpan…&lt;/span&gt;
+                    &lt;/button&gt;
+                &lt;/div&gt;
+            &lt;/form&gt;
+            &lt;form wire:submit=&quot;updatePassword&quot; class=&quot;rounded-2xl border border-slate-200 bg-white p-6 sm:p-8&quot;&gt;
+                &lt;div class=&quot;flex items-center gap-3&quot;&gt;
+                    &lt;span class=&quot;rounded-xl bg-slate-50 p-2 text-blue-600&quot;&gt;
+                        &lt;i data-lucide=&quot;lock-keyhole&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0&quot;&gt;&lt;/i&gt;
+                    &lt;/span&gt;
+                    &lt;div&gt;
+                        &lt;h2 class=&quot;font-display text-lg font-bold&quot;&gt;Ubah Password&lt;/h2&gt;
+                        &lt;p class=&quot;mt-1 text-xs text-slate-500&quot;&gt;Gunakan password yang kuat untuk melindungi akun.&lt;/p&gt;
+                    &lt;/div&gt;
+                &lt;/div&gt;
+                &lt;div class=&quot;mt-7 space-y-5&quot;&gt;
+                    &lt;div&gt;
+                        &lt;label for=&quot;current_password&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Password saat ini&lt;/label&gt;
+                        &lt;input
+                            type=&quot;password&quot;
+                            id=&quot;current_password&quot;
+                            name=&quot;current_password&quot;
+                            aria-describedby=&quot;current_password-error&quot;
+                            @error(&#x27;current_password&#x27;)
+                            aria-invalid=&quot;true&quot;
+                            @enderror
+                            wire:model=&quot;current_password&quot;
+                            autocomplete=&quot;current-password&quot;
+                            required
+                            class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+                        &gt;
+                        @error(&#x27;current_password&#x27;)
+                            &lt;p id=&quot;current_password-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                        @enderror
+                    &lt;/div&gt;
+                    &lt;div&gt;
+                        &lt;label for=&quot;password&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Password baru&lt;/label&gt;
+                        &lt;input
+                            type=&quot;password&quot;
+                            id=&quot;password&quot;
+                            name=&quot;password&quot;
+                            aria-describedby=&quot;password-help password-error&quot;
+                            @error(&#x27;password&#x27;)
+                            aria-invalid=&quot;true&quot;
+                            @enderror
+                            wire:model=&quot;password&quot;
+                            autocomplete=&quot;new-password&quot;
+                            required
+                            class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+                        &gt;
+                        &lt;p id=&quot;password-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;Minimal 8 karakter, mengandung huruf dan angka.&lt;/p&gt;
+                        @error(&#x27;password&#x27;)
+                            &lt;p id=&quot;password-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                        @enderror
+                    &lt;/div&gt;
+                    &lt;div&gt;
+                        &lt;label for=&quot;password_confirmation&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Konfirmasi password baru&lt;/label&gt;
+                        &lt;input
+                            type=&quot;password&quot;
+                            id=&quot;password_confirmation&quot;
+                            name=&quot;password_confirmation&quot;
+                            aria-describedby=&quot;password_confirmation-error&quot;
+                            @error(&#x27;password_confirmation&#x27;)
+                            aria-invalid=&quot;true&quot;
+                            @enderror
+                            wire:model=&quot;password_confirmation&quot;
+                            autocomplete=&quot;new-password&quot;
+                            required
+                            class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+                        &gt;
+                        @error(&#x27;password_confirmation&#x27;)
+                            &lt;p id=&quot;password_confirmation-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                        @enderror
+                    &lt;/div&gt;
+                &lt;/div&gt;
+                &lt;div class=&quot;mt-7 flex justify-end&quot;&gt;
+                    &lt;button
+                        type=&quot;submit&quot;
+                        wire:loading.attr=&quot;disabled&quot;
+                        class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700&quot;
+                    &gt;
+                        &lt;span wire:loading.remove wire:target=&quot;updatePassword&quot;&gt;Ubah Password&lt;/span&gt;
+                        &lt;span wire:loading wire:target=&quot;updatePassword&quot;&gt;Menyimpan…&lt;/span&gt;
+                    &lt;/button&gt;
+                &lt;/div&gt;
+            &lt;/form&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/div&gt;</code></pre></details><h2>Cek sebelum lanjut</h2><div class="note">Dashboard dan Profile memiliki file PHP serta Blade yang sesuai. Semua tujuan route warga kini tersedia.</div><nav><a href='/part-07'>← Part 07</a><a href='/part-09'>Part 09 →</a></nav><footer>Modul E-Report • 26 Oktober 2026 • Berdasarkan source project pengguna. Materi bisa dibaca offline; instalasi dan aset aplikasi memerlukan internet.<br>Rujukan: <a href="https://laravel.com/docs/12.x/installation">Laravel 12</a> · <a href="https://livewire.laravel.com/docs/4.x/components">Komponen Livewire 4</a></footer></main></body></html><script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="6a93551a-7aa5-485b-bb3a-942a903c73c3" data-app-host="app.netlify.com" data-account-tier="free"></script>

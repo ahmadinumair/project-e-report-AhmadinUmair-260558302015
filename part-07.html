@@ -1,0 +1,586 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8">
+<!-- This site is hosted on Netlify. Anyone can build and deploy a site
+     like this one for free: https://netlify.new/?utm_campaign=loops&utm_source=ai-legible&utm_medium=owned&utm_content=comment&utm_id=6a93551a-7aa5-485b-bb3a-942a903c73c3
+     Netlify hosting facts for this site: static/SSR served via Netlify Edge. --><meta name="viewport" content="width=device-width,initial-scale=1"><title>Riwayat, detail, edit, dan hapus</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f4ed;color:#243d34;font:17px/1.75 Segoe UI,Arial,sans-serif}main{max-width:940px;margin:auto;padding:44px 24px}a{color:#17634d}header{border-bottom:2px solid #243d34;padding-bottom:26px;margin-bottom:30px}h1{font:normal clamp(34px,5vw,54px)/1.15 Georgia,serif}h2{font:normal 29px Georgia,serif;margin-top:36px}.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:#17634d}.note{background:#e5eee4;padding:18px 22px;border-radius:8px}pre{background:#17382e;color:#f2f6ef;padding:20px;border-radius:7px;overflow:auto;font:13px/1.7 Consolas,monospace;max-height:540px}details{border:1px solid #d3dbcf;background:#fffef9;margin:12px 0;border-radius:7px;padding:12px 16px}summary{cursor:pointer;font-weight:600;overflow-wrap:anywhere}li{margin:12px 0}.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fffef9;border:1px solid #d3dbcf;padding:20px;text-decoration:none;border-radius:8px}.card small{display:block;color:#637469}nav{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:30px 0}footer{font-size:13px;color:#637469;margin-top:40px}button{padding:8px 12px;cursor:pointer}a:focus-visible,summary:focus-visible{outline:3px solid #b77c28}@media(max-width:600px){main{padding:24px 16px}.cards{grid-template-columns:1fr}}@media print{pre{max-height:none;white-space:pre-wrap;overflow-wrap:anywhere}details>*{display:block}nav,button{display:none}}</style></head><body><main><nav><a href='/'>← Daftar part</a><span>07 / 10</span></nav><header><p class="eyebrow">Praktik E-Report / Part 07</p><h1>Riwayat, detail, edit, dan hapus</h1><p>Warga dapat mengelola laporan miliknya sendiri.</p></header><h2>Langkah praktik</h2><pre tabindex="0"><code>php artisan make:class Services/ComplaintManager --no-interaction
+php artisan make:livewire Warga/Laporan/Index --class --no-interaction
+php artisan make:livewire Warga/Laporan/Show --class --no-interaction
+php artisan make:livewire Warga/Laporan/Edit --class --no-interaction</code></pre><p>Index menampilkan riwayat; Show menampilkan detail; Edit mengubah laporan. Cari judul dan pilih status untuk mempersempit daftar. Pagination membagi data menjadi beberapa halaman.</p><p>Warga hanya boleh edit atau hapus laporan sendiri yang masih pending. ComplaintManager memeriksa ulang izin ketika menyimpan perubahan. Transaksi menjaga satu rangkaian perubahan database tetap utuh; lockForUpdate mencegah dua perubahan status saling bertabrakan.</p><p>Foto lama dibersihkan setelah perubahan berhasil. Tombol hapus memakai konfirmasi supaya pengguna tidak salah klik.</p><h2>Kode lengkap</h2><p>Buka satu file, salin seluruh isinya, lalu simpan ke jalur yang tertera di dalam project latihan. Untuk file yang sudah ada, ganti isinya. File Blade dan konfigurasi boleh dibuat lewat VS Code. Pelajari satu pasangan PHP–Blade dalam satu sesi.</p><details><summary>app/Services/ComplaintManager.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Services;
+
+use App\Models\Laporan;
+use App\Support\StoredImage;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
+
+class ComplaintManager
+{
+    public function update(int $id, array $data): Laporan
+    {
+        $oldPhoto = null;
+        try {
+            $laporan = DB::transaction(function () use ($id, $data, &amp;$oldPhoto): Laporan {
+                $laporan = Laporan::query()-&gt;lockForUpdate()-&gt;findOrFail($id);
+                Gate::authorize(&#x27;update&#x27;, $laporan);
+                $oldPhoto = $laporan-&gt;foto;
+                $laporan-&gt;update($data);
+
+                return $laporan;
+            });
+        } catch (\Throwable $exception) {
+            if (isset($data[&#x27;foto&#x27;])) {
+                StoredImage::delete($data[&#x27;foto&#x27;], &#x27;laporan&#x27;);
+            }
+            throw $exception;
+        }
+        if (isset($data[&#x27;foto&#x27;]) &amp;&amp; $oldPhoto !== $data[&#x27;foto&#x27;]) {
+            StoredImage::delete($oldPhoto, &#x27;laporan&#x27;);
+        }
+
+        return $laporan;
+    }
+
+    public function delete(int $id): void
+    {
+        $photo = DB::transaction(function () use ($id): ?string {
+            $laporan = Laporan::query()-&gt;lockForUpdate()-&gt;findOrFail($id);
+            Gate::authorize(&#x27;delete&#x27;, $laporan);
+            $photo = $laporan-&gt;foto;
+            $laporan-&gt;delete();
+
+            return $photo;
+        });
+        StoredImage::delete($photo, &#x27;laporan&#x27;);
+    }
+
+    public function transition(int $id, string $status): void
+    {
+        DB::transaction(function () use ($id, $status): void {
+            $laporan = Laporan::query()-&gt;lockForUpdate()-&gt;findOrFail($id);
+            Gate::authorize(&#x27;changeStatus&#x27;, $laporan);
+            $next = match ($laporan-&gt;status) {
+                &#x27;pending&#x27; =&gt; &#x27;proses&#x27;,
+                &#x27;proses&#x27; =&gt; &#x27;selesai&#x27;,
+                default =&gt; null,
+            };
+            if ($next === null || $status !== $next) {
+                throw ValidationException::withMessages([&#x27;status&#x27; =&gt; &#x27;Perubahan status tidak diizinkan. Ikuti urutan penanganan pengaduan.&#x27;]);
+            }
+            $laporan-&gt;status = $status;
+            $laporan-&gt;save();
+        });
+    }
+}</code></pre></details><details><summary>app/Livewire/Warga/Laporan/Index.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Livewire\Warga\Laporan;
+
+use App\Livewire\WargaPage;
+use App\Models\Laporan;
+use App\Services\ComplaintManager;
+use Illuminate\Contracts\View\View;
+use Illuminate\Validation\Rule;
+use Livewire\WithPagination;
+
+class Index extends WargaPage
+{
+    use WithPagination;
+
+    public string $search = &#x27;&#x27;;
+
+    public string $status = &#x27;&#x27;;
+
+    public function updatedSearch(): void
+    {
+        $this-&gt;resetPage();
+    }
+
+    public function updatedStatus(): void
+    {
+        $this-&gt;resetPage();
+    }
+
+    public function delete(int $id): void
+    {
+        app(ComplaintManager::class)-&gt;delete($id);
+        session()-&gt;flash(&#x27;success&#x27;, &#x27;Pengaduan berhasil dihapus.&#x27;);
+    }
+
+    public function render(): View
+    {
+        $this-&gt;validate([&#x27;search&#x27; =&gt; &#x27;max:255&#x27;, &#x27;status&#x27; =&gt; [&#x27;nullable&#x27;, Rule::in(array_keys(Laporan::STATUSES))]]);
+        $laporans = auth()-&gt;user()-&gt;laporans()
+            -&gt;when($this-&gt;search !== &#x27;&#x27;, fn ($q) =&gt; $q-&gt;where(&#x27;judul&#x27;, &#x27;like&#x27;, &#x27;%&#x27;.$this-&gt;search.&#x27;%&#x27;))
+            -&gt;when($this-&gt;status !== &#x27;&#x27;, fn ($q) =&gt; $q-&gt;where(&#x27;status&#x27;, $this-&gt;status))
+            -&gt;latest()-&gt;orderByDesc(&#x27;id&#x27;)-&gt;paginate(10);
+
+        return view(&#x27;livewire.warga.laporan.index&#x27;, compact(&#x27;laporans&#x27;))-&gt;title(&#x27;Pengaduan Saya&#x27;);
+    }
+}</code></pre></details><details><summary>resources/views/livewire/warga/laporan/index.blade.php</summary><pre tabindex="0"><code>&lt;div&gt;
+    &lt;div class=&quot;mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between&quot;&gt;
+        &lt;div&gt;
+            &lt;h1 class=&quot;font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl&quot;&gt;Pengaduan Saya&lt;/h1&gt;
+            &lt;p class=&quot;mt-2 text-sm leading-relaxed text-slate-500&quot;&gt;Semua pengaduan dan perkembangannya dalam satu tempat.&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;a
+            href=&quot;{{ route(&#x27;warga.laporan.create&#x27;) }}&quot;
+            class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700&quot;
+        &gt;
+            &lt;i data-lucide=&quot;plus&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+            Buat Pengaduan
+        &lt;/a&gt;
+    &lt;/div&gt;
+    @if(session(&#x27;success&#x27;))
+        &lt;div role=&quot;status&quot; class=&quot;mb-6 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800&quot;&gt;
+            &lt;i data-lucide=&quot;circle-check&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0&quot;&gt;&lt;/i&gt;
+            &lt;span&gt;{{ session(&#x27;success&#x27;) }}&lt;/span&gt;
+        &lt;/div&gt;
+    @endif
+    {{-- Pencarian dan filter pengaduan --}}
+    &lt;div class=&quot;mb-5 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row&quot;&gt;
+        &lt;div class=&quot;relative flex-1&quot;&gt;
+            &lt;label for=&quot;search&quot; class=&quot;sr-only&quot;&gt;Cari pengaduan&lt;/label&gt;
+            &lt;span class=&quot;pointer-events-none absolute top-3.5 left-3 text-slate-400&quot;&gt;
+                &lt;i data-lucide=&quot;search&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+            &lt;/span&gt;
+            &lt;input
+                id=&quot;search&quot;
+                type=&quot;search&quot;
+                wire:model.live.debounce.350ms=&quot;search&quot;
+                placeholder=&quot;Cari judul pengaduan…&quot;
+                class=&quot;w-full rounded-xl border border-slate-200 py-3 pr-4 pl-10 text-sm&quot;
+            &gt;
+        &lt;/div&gt;
+        &lt;div&gt;
+            &lt;label for=&quot;status&quot; class=&quot;sr-only&quot;&gt;Filter status&lt;/label&gt;
+            &lt;select id=&quot;status&quot; wire:model.live=&quot;status&quot; class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 sm:w-48&quot;&gt;
+                &lt;option value=&quot;&quot;&gt;Semua status&lt;/option&gt;
+                @foreach(\App\Models\Laporan::STATUSES as $value =&gt; $label)
+                    &lt;option value=&quot;{{ $value }}&quot;&gt;{{ $label }}&lt;/option&gt;
+                @endforeach
+            &lt;/select&gt;
+        &lt;/div&gt;
+        &lt;span wire:loading role=&quot;status&quot; class=&quot;self-center text-xs text-blue-600&quot;&gt;Memuat…&lt;/span&gt;
+    &lt;/div&gt;
+    {{-- Tabel pengaduan dan pagination --}}
+    &lt;div class=&quot;overflow-hidden rounded-2xl border border-slate-200 bg-white&quot;&gt;
+        @if($laporans-&gt;isEmpty())
+            &lt;div class=&quot;px-6 py-16 text-center&quot;&gt;
+                &lt;div class=&quot;mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-600&quot;&gt;
+                    &lt;i data-lucide=&quot;inbox&quot; aria-hidden=&quot;true&quot; class=&quot;h-8 w-8 shrink-0&quot;&gt;&lt;/i&gt;
+                &lt;/div&gt;
+                &lt;h3 class=&quot;font-display text-lg font-bold text-slate-800&quot;&gt;Belum ada pengaduan yang ditemukan&lt;/h3&gt;
+                &lt;p class=&quot;mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500&quot;&gt;Coba kata kunci atau filter lain. Pengaduan yang sesuai akan tampil di sini.&lt;/p&gt;
+                &lt;div class=&quot;mt-6&quot;&gt;
+                    &lt;a
+                        href=&quot;{{ route(&#x27;warga.laporan.create&#x27;) }}&quot;
+                        class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700&quot;
+                    &gt;Buat Pengaduan&lt;/a&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+        @else
+            &lt;div class=&quot;overflow-x-auto&quot;&gt;
+                &lt;table class=&quot;w-full min-w-[800px] text-left text-sm&quot;&gt;
+                    &lt;thead class=&quot;bg-slate-50 text-xs text-slate-500&quot;&gt;
+                        &lt;tr&gt;
+                            &lt;th class=&quot;px-6 py-4 font-medium&quot;&gt;ID / Judul Pengaduan&lt;/th&gt;
+                            &lt;th class=&quot;px-4 py-4 font-medium&quot;&gt;Tanggal Kejadian&lt;/th&gt;
+                            &lt;th class=&quot;px-4 py-4 font-medium&quot;&gt;Tanggal Pengajuan&lt;/th&gt;
+                            &lt;th class=&quot;px-4 py-4 font-medium&quot;&gt;Status&lt;/th&gt;
+                            &lt;th class=&quot;px-6 py-4 text-right font-medium&quot;&gt;Aksi&lt;/th&gt;
+                        &lt;/tr&gt;
+                    &lt;/thead&gt;
+                    &lt;tbody class=&quot;divide-y divide-slate-100&quot;&gt;
+                        @foreach($laporans as $laporan)
+                            &lt;tr wire:key=&quot;laporan-{{ $laporan-&gt;id }}&quot; class=&quot;hover:bg-slate-50/70&quot;&gt;
+                                &lt;td class=&quot;max-w-xs px-6 py-5&quot;&gt;
+                                    &lt;p class=&quot;text-[10px] font-bold tracking-wider text-slate-400&quot;&gt;# {{ str_pad($laporan-&gt;id, 5, &#x27;0&#x27;, STR_PAD_LEFT) }}&lt;/p&gt;
+                                    &lt;a
+                                        href=&quot;{{ route(&#x27;warga.laporan.show&#x27;, $laporan) }}&quot;
+                                        class=&quot;mt-1 block truncate font-semibold text-slate-800 hover:text-blue-600&quot;
+                                    &gt;{{ $laporan-&gt;judul }}&lt;/a&gt;
+                                &lt;/td&gt;
+                                &lt;td class=&quot;px-4 py-5 text-xs text-slate-500&quot;&gt;{{ $laporan-&gt;tanggal-&gt;translatedFormat(&#x27;d M Y&#x27;) }}&lt;/td&gt;
+                                &lt;td class=&quot;px-4 py-5 text-xs text-slate-500&quot;&gt;{{ $laporan-&gt;created_at-&gt;translatedFormat(&#x27;d M Y&#x27;) }}&lt;/td&gt;
+                                &lt;td class=&quot;px-4 py-5&quot;&gt;
+                                    &lt;span @class([
+                                    &#x27;inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold&#x27;,
+                                    &#x27;bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200&#x27; =&gt; $laporan-&gt;status === &#x27;pending&#x27;,
+                                    &#x27;bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200&#x27; =&gt; $laporan-&gt;status === &#x27;proses&#x27;,
+                                    &#x27;bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200&#x27; =&gt; $laporan-&gt;status === &#x27;selesai&#x27;,
+                                    ])&gt;
+                                        &lt;span class=&quot;h-1.5 w-1.5 rounded-full bg-current&quot;&gt;&lt;/span&gt;
+                                        {{ \App\Models\Laporan::STATUSES[$laporan-&gt;status] ?? $laporan-&gt;status }}
+                                    &lt;/span&gt;
+                                &lt;/td&gt;
+                                &lt;td class=&quot;px-6 py-5&quot;&gt;
+                                    &lt;div class=&quot;flex justify-end gap-2&quot;&gt;
+                                        &lt;a
+                                            href=&quot;{{ route(&#x27;warga.laporan.show&#x27;, $laporan) }}&quot;
+                                            aria-label=&quot;Detail {{ $laporan-&gt;judul }}&quot;
+                                            title=&quot;Detail&quot;
+                                            class=&quot;rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-600&quot;
+                                        &gt;
+                                            &lt;i data-lucide=&quot;eye&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+                                        &lt;/a&gt;
+                                        @can(&#x27;update&#x27;, $laporan)
+                                            &lt;a
+                                                href=&quot;{{ route(&#x27;warga.laporan.edit&#x27;, $laporan) }}&quot;
+                                                aria-label=&quot;Edit {{ $laporan-&gt;judul }}&quot;
+                                                title=&quot;Edit&quot;
+                                                class=&quot;rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-600&quot;
+                                            &gt;
+                                                &lt;i data-lucide=&quot;pencil&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+                                            &lt;/a&gt;
+                                            &lt;button
+                                                wire:click=&quot;delete({{ $laporan-&gt;id }})&quot;
+                                                wire:confirm=&quot;Hapus pengaduan ini? Foto bukti juga akan dihapus. Tindakan ini tidak dapat dibatalkan.&quot;
+                                                wire:loading.attr=&quot;disabled&quot;
+                                                aria-label=&quot;Hapus {{ $laporan-&gt;judul }}&quot;
+                                                title=&quot;Hapus&quot;
+                                                class=&quot;rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-red-50 hover:text-red-600&quot;
+                                            &gt;
+                                                &lt;i data-lucide=&quot;trash-2&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+                                            &lt;/button&gt;
+                                        @endcan
+                                    &lt;/div&gt;
+                                &lt;/td&gt;
+                            &lt;/tr&gt;
+                        @endforeach
+                    &lt;/tbody&gt;
+                &lt;/table&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;border-t border-slate-100 px-6 py-4&quot;&gt;
+                @if($laporans-&gt;hasPages())
+                    &lt;nav role=&quot;navigation&quot; aria-label=&quot;Halaman pengaduan&quot; class=&quot;flex flex-wrap items-center justify-between gap-4 text-xs&quot;&gt;
+                        &lt;p class=&quot;text-slate-500&quot;&gt;Menampilkan {{ $laporans-&gt;firstItem() }} – {{ $laporans-&gt;lastItem() }} dari {{ $laporans-&gt;total() }} pengaduan&lt;/p&gt;
+                        &lt;div class=&quot;flex items-center gap-3&quot;&gt;
+                            &lt;button
+                                type=&quot;button&quot;
+                                wire:click=&quot;previousPage(&#x27;{{ $laporans-&gt;getPageName() }}&#x27;)&quot;
+                                wire:loading.attr=&quot;disabled&quot;
+                                @disabled($laporans-&gt;onFirstPage())
+                                class=&quot;rounded-lg border border-slate-200 px-3 py-2 text-slate-600 disabled:opacity-40&quot;
+                            &gt;Sebelumnya&lt;/button&gt;
+                            &lt;span class=&quot;font-bold text-blue-600&quot;&gt;{{ $laporans-&gt;currentPage() }} / {{ $laporans-&gt;lastPage() }}&lt;/span&gt;
+                            &lt;button
+                                type=&quot;button&quot;
+                                wire:click=&quot;nextPage(&#x27;{{ $laporans-&gt;getPageName() }}&#x27;)&quot;
+                                wire:loading.attr=&quot;disabled&quot;
+                                @disabled(!$laporans-&gt;hasMorePages())
+                                class=&quot;rounded-lg border border-slate-200 px-3 py-2 text-slate-600 disabled:opacity-40&quot;
+                            &gt;Berikutnya&lt;/button&gt;
+                        &lt;/div&gt;
+                    &lt;/nav&gt;
+                @else
+                    &lt;p class=&quot;text-xs text-slate-400&quot;&gt;{{ $laporans-&gt;total() }} pengaduan&lt;/p&gt;
+                @endif
+            &lt;/div&gt;
+        @endif
+    &lt;/div&gt;
+&lt;/div&gt;</code></pre></details><details><summary>app/Livewire/Warga/Laporan/Show.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Livewire\Warga\Laporan;
+
+use App\Livewire\WargaPage;
+use App\Models\Laporan;
+use App\Services\ComplaintManager;
+use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Locked;
+
+class Show extends WargaPage
+{
+    #[Locked]
+    public int $laporanId;
+
+    public function mount(Laporan $laporan): void
+    {
+        $this-&gt;authorize(&#x27;view&#x27;, $laporan);
+        $this-&gt;laporanId = $laporan-&gt;id;
+    }
+
+    public function delete(): void
+    {
+        app(ComplaintManager::class)-&gt;delete($this-&gt;laporanId);
+        session()-&gt;flash(&#x27;success&#x27;, &#x27;Pengaduan berhasil dihapus.&#x27;);
+        $this-&gt;redirectRoute(&#x27;warga.laporan.index&#x27;);
+    }
+
+    public function render(): View
+    {
+        $laporan = Laporan::findOrFail($this-&gt;laporanId);
+        $this-&gt;authorize(&#x27;view&#x27;, $laporan);
+
+        return view(&#x27;livewire.warga.laporan.show&#x27;, compact(&#x27;laporan&#x27;))-&gt;title(&#x27;Detail Pengaduan&#x27;);
+    }
+}</code></pre></details><details><summary>resources/views/livewire/warga/laporan/show.blade.php</summary><pre tabindex="0"><code>&lt;div wire:poll.15s&gt;
+    @if(session(&#x27;success&#x27;))
+        &lt;div role=&quot;status&quot; class=&quot;mb-6 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800&quot;&gt;
+            &lt;i data-lucide=&quot;circle-check&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0&quot;&gt;&lt;/i&gt;
+            &lt;span&gt;{{ session(&#x27;success&#x27;) }}&lt;/span&gt;
+        &lt;/div&gt;
+    @endif
+    &lt;div class=&quot;mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between&quot;&gt;
+        &lt;div&gt;
+            &lt;h1 class=&quot;font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl&quot;&gt;Detail Pengaduan&lt;/h1&gt;
+            &lt;p class=&quot;mt-2 text-sm leading-relaxed text-slate-500&quot;&gt;Pantau dan lihat informasi lengkap pengaduan Anda.&lt;/p&gt;
+        &lt;/div&gt;
+        &lt;a
+            href=&quot;{{ route(&#x27;warga.laporan.index&#x27;) }}&quot;
+            class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition border border-slate-200 bg-white text-slate-700 hover:bg-slate-50&quot;
+        &gt;
+            &lt;i data-lucide=&quot;arrow-left&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+            Kembali
+        &lt;/a&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;grid items-start gap-6 lg:grid-cols-[1fr_300px]&quot;&gt;
+        {{-- Informasi lengkap pengaduan --}}
+        &lt;article class=&quot;overflow-hidden rounded-2xl border border-slate-200 bg-white&quot;&gt;
+            &lt;div class=&quot;border-b border-slate-100 p-6 sm:p-8&quot;&gt;
+                &lt;div class=&quot;mb-4 flex flex-wrap items-center justify-between gap-3&quot;&gt;
+                    &lt;span class=&quot;text-xs font-bold tracking-wider text-slate-400&quot;&gt;PENGADUAN # {{ str_pad($laporan-&gt;id, 5, &#x27;0&#x27;, STR_PAD_LEFT) }}&lt;/span&gt;
+                    &lt;span @class([
+                    &#x27;inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold&#x27;,
+                    &#x27;bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200&#x27; =&gt; $laporan-&gt;status === &#x27;pending&#x27;,
+                    &#x27;bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200&#x27; =&gt; $laporan-&gt;status === &#x27;proses&#x27;,
+                    &#x27;bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200&#x27; =&gt; $laporan-&gt;status === &#x27;selesai&#x27;,
+                    ])&gt;
+                        &lt;span class=&quot;h-1.5 w-1.5 rounded-full bg-current&quot;&gt;&lt;/span&gt;
+                        {{ \App\Models\Laporan::STATUSES[$laporan-&gt;status] ?? $laporan-&gt;status }}
+                    &lt;/span&gt;
+                &lt;/div&gt;
+                &lt;h2 class=&quot;font-display text-2xl leading-snug font-bold break-words&quot;&gt;{{ $laporan-&gt;judul }}&lt;/h2&gt;
+                &lt;div class=&quot;mt-6 grid gap-4 text-xs text-slate-500 sm:grid-cols-2&quot;&gt;
+                    &lt;div class=&quot;flex items-center gap-2&quot;&gt;
+                        &lt;i data-lucide=&quot;calendar-days&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0 text-slate-400&quot;&gt;&lt;/i&gt;
+                        &lt;span&gt;
+                            Kejadian:
+                            &lt;strong class=&quot;font-medium text-slate-700&quot;&gt;{{ $laporan-&gt;tanggal-&gt;translatedFormat(&#x27;d F Y&#x27;) }}&lt;/strong&gt;
+                        &lt;/span&gt;
+                    &lt;/div&gt;
+                    &lt;div class=&quot;flex items-center gap-2&quot;&gt;
+                        &lt;i data-lucide=&quot;clock-3&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0 text-slate-400&quot;&gt;&lt;/i&gt;
+                        &lt;span&gt;Diajukan: {{ $laporan-&gt;created_at-&gt;translatedFormat(&#x27;d M Y, H:i&#x27;) }}&lt;/span&gt;
+                    &lt;/div&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;p-6 sm:p-8&quot;&gt;
+                &lt;h3 class=&quot;mb-4 text-sm font-bold&quot;&gt;Deskripsi Pengaduan&lt;/h3&gt;
+                &lt;p class=&quot;text-sm leading-8 break-words whitespace-pre-line text-slate-600&quot;&gt;{{ $laporan-&gt;detail }}&lt;/p&gt;
+                &lt;h3 class=&quot;mt-8 mb-4 text-sm font-bold&quot;&gt;Foto Bukti&lt;/h3&gt;
+                @if($laporan-&gt;foto)
+                    &lt;a href=&quot;{{ Storage::disk(&#x27;public&#x27;)-&gt;url($laporan-&gt;foto) }}&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;&gt;
+                        &lt;img src=&quot;{{ Storage::disk(&#x27;public&#x27;)-&gt;url($laporan-&gt;foto) }}&quot; alt=&quot;Foto bukti: {{ $laporan-&gt;judul }}&quot; class=&quot;max-h-[500px] w-full rounded-xl border border-slate-100 bg-slate-50 object-contain&quot;&gt;
+                    &lt;/a&gt;
+                    &lt;p class=&quot;mt-2 text-xs text-slate-400&quot;&gt;Klik foto untuk melihat ukuran penuh.&lt;/p&gt;
+                @else
+                    &lt;div class=&quot;flex items-center gap-3 rounded-xl bg-slate-50 p-5 text-sm text-slate-400&quot;&gt;
+                        &lt;i data-lucide=&quot;image&quot; aria-hidden=&quot;true&quot; class=&quot;h-5 w-5 shrink-0&quot;&gt;&lt;/i&gt;
+                        Tidak ada foto bukti dilampirkan.
+                    &lt;/div&gt;
+                @endif
+            &lt;/div&gt;
+        &lt;/article&gt;
+        &lt;aside class=&quot;space-y-5&quot;&gt;
+            {{-- Tahapan penanganan --}}
+            &lt;section class=&quot;rounded-2xl border border-slate-200 bg-white p-6&quot;&gt;
+                &lt;h2 class=&quot;font-display font-bold&quot;&gt;Progres Pengaduan&lt;/h2&gt;
+                &lt;div class=&quot;mt-6 space-y-6&quot;&gt;
+                    @foreach([&#x27;pending&#x27; =&gt; [&#x27;clock-3&#x27;, &#x27;Menunggu Peninjauan&#x27;], &#x27;proses&#x27; =&gt; [&#x27;loader-circle&#x27;, &#x27;Sedang Diproses&#x27;], &#x27;selesai&#x27; =&gt; [&#x27;circle-check&#x27;, &#x27;Selesai Ditangani&#x27;]] as $status =&gt; [$icon, $label])
+                        @php $reached = array_search($laporan-&gt;status, [&#x27;pending&#x27;,&#x27;proses&#x27;,&#x27;selesai&#x27;]) &gt;= $loop-&gt;index; @endphp
+                        &lt;div class=&quot;flex items-center gap-3&quot;&gt;
+                            &lt;span @class([&#x27;flex h-9 w-9 shrink-0 items-center justify-center rounded-full&#x27;, &#x27;bg-blue-50 text-blue-600&#x27; =&gt; $reached, &#x27;bg-slate-50 text-slate-300&#x27; =&gt; !$reached])&gt;
+                                &lt;i data-lucide=&quot;{{ $icon }}&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+                            &lt;/span&gt;
+                            &lt;p @class([&#x27;text-xs font-semibold&#x27;, &#x27;text-slate-700&#x27; =&gt; $reached, &#x27;text-slate-400&#x27; =&gt; !$reached])&gt;
+                                {{ $label }}
+                                @if($laporan-&gt;status === $status)
+                                    &lt;span class=&quot;mt-1 block text-[10px] font-normal text-blue-600&quot;&gt;Tahap saat ini&lt;/span&gt;
+                                @endif
+                            &lt;/p&gt;
+                        &lt;/div&gt;
+                    @endforeach
+                &lt;/div&gt;
+                &lt;p class=&quot;mt-6 rounded-xl bg-slate-50 p-4 text-xs leading-6 text-slate-500&quot;&gt;{{ $laporan-&gt;statusDescription() }}&lt;/p&gt;
+            &lt;/section&gt;
+            @can(&#x27;update&#x27;, $laporan)
+                &lt;section class=&quot;rounded-2xl border border-slate-200 bg-white p-6&quot;&gt;
+                    &lt;h2 class=&quot;font-display text-sm font-bold&quot;&gt;Kelola Pengaduan&lt;/h2&gt;
+                    &lt;p class=&quot;mt-2 text-xs leading-6 text-slate-500&quot;&gt;Anda dapat mengubah informasi selama pengaduan belum diproses.&lt;/p&gt;
+                    &lt;a
+                        href=&quot;{{ route(&#x27;warga.laporan.edit&#x27;, $laporan) }}&quot;
+                        class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 mt-4 w-full&quot;
+                    &gt;
+                        &lt;i data-lucide=&quot;pencil&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+                        Edit Pengaduan
+                    &lt;/a&gt;
+                    &lt;button
+                        type=&quot;button&quot;
+                        wire:loading.attr=&quot;disabled&quot;
+                        wire:click=&quot;delete&quot;
+                        wire:confirm=&quot;Hapus pengaduan beserta foto buktinya? Tindakan ini tidak dapat dibatalkan.&quot;
+                        class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 mt-3 w-full&quot;
+                    &gt;
+                        &lt;i data-lucide=&quot;trash-2&quot; aria-hidden=&quot;true&quot; class=&quot;h-4 w-4 shrink-0&quot;&gt;&lt;/i&gt;
+                        Hapus Pengaduan
+                    &lt;/button&gt;
+                &lt;/section&gt;
+            @endcan
+        &lt;/aside&gt;
+    &lt;/div&gt;
+&lt;/div&gt;</code></pre></details><details><summary>app/Livewire/Warga/Laporan/Edit.php</summary><pre tabindex="0"><code>&lt;?php
+
+namespace App\Livewire\Warga\Laporan;
+
+use App\Livewire\ComplaintForm;
+use App\Models\Laporan;
+use App\Services\ComplaintManager;
+use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Locked;
+
+class Edit extends ComplaintForm
+{
+    #[Locked]
+    public int $laporanId;
+
+    public function mount(Laporan $laporan): void
+    {
+        $this-&gt;authorize(&#x27;update&#x27;, $laporan);
+        $this-&gt;laporanId = $laporan-&gt;id;
+        $this-&gt;judul = $laporan-&gt;judul;
+        $this-&gt;detail = $laporan-&gt;detail;
+        $this-&gt;tanggal = $laporan-&gt;tanggal-&gt;format(&#x27;Y-m-d&#x27;);
+    }
+
+    public function save(): void
+    {
+        $this-&gt;authorize(&#x27;update&#x27;, Laporan::findOrFail($this-&gt;laporanId));
+        app(ComplaintManager::class)-&gt;update($this-&gt;laporanId, $this-&gt;validatedData());
+        session()-&gt;flash(&#x27;success&#x27;, &#x27;Perubahan pengaduan berhasil disimpan.&#x27;);
+        $this-&gt;redirectRoute(&#x27;warga.laporan.show&#x27;, [&#x27;laporan&#x27; =&gt; $this-&gt;laporanId]);
+    }
+
+    public function render(): View
+    {
+        $laporan = Laporan::findOrFail($this-&gt;laporanId);
+        $this-&gt;authorize(&#x27;update&#x27;, $laporan);
+
+        return view(&#x27;livewire.warga.laporan.edit&#x27;, compact(&#x27;laporan&#x27;))-&gt;title(&#x27;Edit Pengaduan&#x27;);
+    }
+}</code></pre></details><details><summary>resources/views/livewire/warga/laporan/edit.blade.php</summary><pre tabindex="0"><code>&lt;div&gt;
+    &lt;div class=&quot;mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between&quot;&gt;
+        &lt;div&gt;
+            &lt;h1 class=&quot;font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl&quot;&gt;Edit Pengaduan&lt;/h1&gt;
+            &lt;p class=&quot;mt-2 text-sm leading-relaxed text-slate-500&quot;&gt;Perubahan hanya dapat dilakukan selama pengaduan menunggu peninjauan.&lt;/p&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;form wire:submit=&quot;save&quot; class=&quot;max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 sm:p-8&quot;&gt;
+        {{-- Formulir pengaduan: setiap input terhubung ke properti Livewire --}}
+        &lt;div class=&quot;space-y-6&quot;&gt;
+            &lt;div&gt;
+                &lt;label for=&quot;judul&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Judul pengaduan&lt;/label&gt;
+                &lt;input
+                    type=&quot;text&quot;
+                    id=&quot;judul&quot;
+                    name=&quot;judul&quot;
+                    aria-describedby=&quot;judul-help judul-error&quot;
+                    @error(&#x27;judul&#x27;)
+                    aria-invalid=&quot;true&quot;
+                    @enderror
+                    wire:model=&quot;judul&quot;
+                    placeholder=&quot;Contoh: Lampu jalan mati di Jalan Melati&quot;
+                    maxlength=&quot;255&quot;
+                    required
+                    class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50&quot;
+                &gt;
+                &lt;p id=&quot;judul-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;Gunakan judul singkat yang menggambarkan masalah.&lt;/p&gt;
+                @error(&#x27;judul&#x27;)
+                    &lt;p id=&quot;judul-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                @enderror
+            &lt;/div&gt;
+            &lt;div&gt;
+                &lt;label for=&quot;detail&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Deskripsi pengaduan&lt;/label&gt;
+                &lt;textarea
+                    id=&quot;detail&quot;
+                    name=&quot;detail&quot;
+                    aria-describedby=&quot;detail-help detail-error&quot;
+                    @error(&#x27;detail&#x27;)
+                    aria-invalid=&quot;true&quot;
+                    @enderror
+                    wire:model=&quot;detail&quot;
+                    rows=&quot;6&quot;
+                    placeholder=&quot;Ceritakan masalah secara jelas, termasuk lokasi dan dampaknya bagi warga…&quot;
+                    maxlength=&quot;10000&quot;
+                    required
+                    class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 min-h-32&quot;
+                &gt;&lt;/textarea&gt;
+                &lt;p id=&quot;detail-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;Jelaskan lokasi kejadian dalam deskripsi. Maksimal 10.000 karakter.&lt;/p&gt;
+                @error(&#x27;detail&#x27;)
+                    &lt;p id=&quot;detail-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                @enderror
+            &lt;/div&gt;
+            &lt;div&gt;
+                &lt;label for=&quot;tanggal&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Tanggal kejadian&lt;/label&gt;
+                &lt;input
+                    type=&quot;date&quot;
+                    id=&quot;tanggal&quot;
+                    name=&quot;tanggal&quot;
+                    aria-describedby=&quot;tanggal-error&quot;
+                    @error(&#x27;tanggal&#x27;)
+                    aria-invalid=&quot;true&quot;
+                    @enderror
+                    wire:model=&quot;tanggal&quot;
+                    max=&quot;{{ today()-&gt;format(&#x27;Y-m-d&#x27;) }}&quot;
+                    required
+                    class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700&quot;
+                &gt;
+                @error(&#x27;tanggal&#x27;)
+                    &lt;p id=&quot;tanggal-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                @enderror
+            &lt;/div&gt;
+            &lt;div class=&quot;rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5&quot;&gt;
+                &lt;div&gt;
+                    &lt;label for=&quot;foto&quot; class=&quot;mb-2 block text-sm font-semibold text-slate-700&quot;&gt;Foto bukti (opsional)&lt;/label&gt;
+                    &lt;input
+                        type=&quot;file&quot;
+                        id=&quot;foto&quot;
+                        name=&quot;foto&quot;
+                        aria-describedby=&quot;foto-help foto-error&quot;
+                        @error(&#x27;foto&#x27;)
+                        aria-invalid=&quot;true&quot;
+                        @enderror
+                        wire:model=&quot;foto&quot;
+                        accept=&quot;image/jpeg,image/png,image/webp&quot;
+                        class=&quot;w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-50 read-only:bg-slate-50 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700&quot;
+                    &gt;
+                    &lt;p id=&quot;foto-help&quot; class=&quot;mt-2 text-xs leading-relaxed text-slate-500&quot;&gt;JPG, PNG, atau WebP. Maksimal 2 MB. Pilih foto yang memperjelas pengaduan.&lt;/p&gt;
+                    @error(&#x27;foto&#x27;)
+                        &lt;p id=&quot;foto-error&quot; role=&quot;alert&quot; class=&quot;mt-2 text-sm text-red-600&quot;&gt;{{ $message }}&lt;/p&gt;
+                    @enderror
+                &lt;/div&gt;
+                &lt;p wire:loading wire:target=&quot;foto&quot; role=&quot;status&quot; class=&quot;mt-3 text-xs text-blue-600&quot;&gt;Mengunggah foto…&lt;/p&gt;
+                @if($laporan-&gt;foto)
+                    &lt;div class=&quot;mt-4&quot;&gt;
+                        &lt;p class=&quot;mb-2 text-xs text-slate-500&quot;&gt;Foto saat ini. Unggah foto baru untuk menggantinya.&lt;/p&gt;
+                        &lt;img src=&quot;{{ Storage::disk(&#x27;public&#x27;)-&gt;url($laporan-&gt;foto) }}&quot; alt=&quot;Foto bukti saat ini&quot; class=&quot;max-h-44 rounded-xl object-contain&quot;&gt;
+                    &lt;/div&gt;
+                @endif
+            &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;mt-8 flex flex-wrap justify-end gap-3 border-t border-slate-100 pt-6&quot;&gt;
+            &lt;a
+                href=&quot;{{ route(&#x27;warga.laporan.show&#x27;, $laporan) }}&quot;
+                class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition border border-slate-200 bg-white text-slate-700 hover:bg-slate-50&quot;
+            &gt;Batal&lt;/a&gt;
+            &lt;button
+                type=&quot;submit&quot;
+                wire:loading.attr=&quot;disabled&quot;
+                wire:target=&quot;save,foto&quot;
+                class=&quot;inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition bg-blue-600 text-white shadow-sm shadow-blue-200 hover:bg-blue-700&quot;
+            &gt;
+                &lt;span wire:loading.remove wire:target=&quot;save&quot;&gt;Simpan Perubahan&lt;/span&gt;
+                &lt;span wire:loading wire:target=&quot;save&quot;&gt;Menyimpan…&lt;/span&gt;
+            &lt;/button&gt;
+        &lt;/div&gt;
+    &lt;/form&gt;
+&lt;/div&gt;</code></pre></details><h2>Cek sebelum lanjut</h2><div class="note">Halaman Index, Show, Edit, serta ComplaintManager sudah lengkap. Perhatikan izin pada policy sebelum mempelajari tampilan tombolnya.</div><nav><a href='/part-06'>← Part 06</a><a href='/part-08'>Part 08 →</a></nav><footer>Modul E-Report • 26 Oktober 2026 • Berdasarkan source project pengguna. Materi bisa dibaca offline; instalasi dan aset aplikasi memerlukan internet.<br>Rujukan: <a href="https://laravel.com/docs/12.x/installation">Laravel 12</a> · <a href="https://livewire.laravel.com/docs/4.x/components">Komponen Livewire 4</a></footer></main></body></html><script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="6a93551a-7aa5-485b-bb3a-942a903c73c3" data-app-host="app.netlify.com" data-account-tier="free"></script>
